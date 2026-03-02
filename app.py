@@ -93,16 +93,27 @@ def limpar_dados(df):
 
 @st.cache_data(show_spinner=False)
 def obter_coords(cidades_uf):
-    geo = Nominatim(user_agent="app_fretes_orguel_v10")
-    limitado = RateLimiter(geo.geocode, min_delay_seconds=0.1)
+    # BLINDAGEM ANTI-CRASH AQUI
     coords = {}
-    for cid_uf in cidades_uf:
-        if cid_uf and 'NÃO INFORMADO' not in cid_uf:
-            try:
-                loc = limitado(f"{cid_uf}, Brasil")
-                if loc: coords[cid_uf] = (loc.latitude, loc.longitude)
-            except: pass
-    return coords
+    try:
+        # Novo User Agent mais específico para evitar bloqueios 403
+        geo = Nominatim(user_agent="app_fretes_dash_corporativo_br_v1")
+        # Delay aumentado para respeitar o servidor e evitar travamentos
+        limitado = RateLimiter(geo.geocode, min_delay_seconds=1.0, max_retries=2, error_wait_seconds=2.0)
+        
+        for cid_uf in cidades_uf:
+            if cid_uf and 'NÃO INFORMADO' not in cid_uf:
+                try:
+                    loc = limitado(f"{cid_uf}, Brasil")
+                    if loc: coords[cid_uf] = (loc.latitude, loc.longitude)
+                except Exception:
+                    # Se uma cidade falhar, apenas pula e continua para não travar o app
+                    pass 
+        return coords
+    except Exception as e:
+        # Se o sistema de mapas falhar por completo, retorna vazio mas DEIXA O APP RODAR
+        print(f"Erro no geolocalizador: {e}")
+        return coords
 
 def avaliar_prazo(row):
     if pd.isna(row['DATA ENTREGUE']): return 'EM ANDAMENTO'
@@ -154,9 +165,8 @@ if not df.empty:
     df['CIDADE/UF_ORIGEM'] = df['CIDADE ORIGEM'] + ", " + df['ESTADO ORIGEM']
     df['CIDADE/UF_DESTINO'] = df['CIDADE DESTINO'] + ", " + df['ESTADO DESTINO']
     
-    # === AQUI ESTÁ A BARRA DE CARREGAMENTO PARA NÃO PARECER TRAVADO ===
     todas_cidades = pd.concat([df['CIDADE/UF_ORIGEM'], df['CIDADE/UF_DESTINO']]).unique()
-    with st.spinner("🌍 Processando satélite e mapeando novas rotas (Pode levar alguns segundos na primeira vez)..."):
+    with st.spinner("🌍 Mapeando rotas logísticas... (Isso garantirá o funcionamento do painel)"):
         dic_coords = obter_coords(todas_cidades)
     
     df['lat_o'] = df['CIDADE/UF_ORIGEM'].map(lambda x: dic_coords.get(x, (None, None))[0])
@@ -288,7 +298,7 @@ with tab2:
                     tooltip={"text": "Rota Identificada"}
                 ))
             else:
-                st.warning("Nenhuma rota com coordenadas válidas para traçar o mapa com os filtros atuais.")
+                st.info("Nenhuma coordenada de mapa encontrada. O sistema de mapas pode estar indisponível ou as cidades não foram localizadas.")
 
         with col_dados:
             tem_pedido_unico = (f2_ped != "TODOS" and not df_t2.empty)
