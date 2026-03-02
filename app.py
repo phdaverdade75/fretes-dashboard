@@ -34,7 +34,7 @@ st.markdown("""
 # ==========================================
 # 2. MOTOR DO BANCO DE DADOS
 # ==========================================
-ARQUIVO_DB = "banco_fretes_v94.csv"
+ARQUIVO_DB = "banco_fretes_v96.csv"
 
 COLUNAS_PADRAO = [
     'ID_INTERNO', 'TRANSPORTADORA', 'CHAMADO DE FRETE / Nº PROCESSO', 'NUMERO DA NOTA', 
@@ -62,7 +62,8 @@ def limpar_dados(df):
         'STATUS': 'STATUS FRETES', 'MEDICAO/SUPRIMENTOS': 'MEDIÇÃO/SUPRIMENTOS',
         'DATA PREVISÃO ENTREGA': 'DATA DE PREVISÃO DE ENTREGA',
         'DATA DE PREVISAO DE ENTREGA': 'DATA DE PREVISÃO DE ENTREGA',
-        'DATA ENTREGA': 'DATA ENTREGUE'
+        'DATA ENTREGA': 'DATA ENTREGUE',
+        'OBSERVACAO': 'OBSERVAÇÃO'
     }
     df.rename(columns=mapeamento, inplace=True)
 
@@ -253,6 +254,10 @@ with tab1:
                 fig_med_sup.update_layout(margin=dict(l=0, r=0, t=40, b=0), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
                 st.plotly_chart(fig_med_sup, use_container_width=True)
 
+            st.divider()
+            st.markdown("### 📋 Detalhamento de Dados (Visão Global)")
+            st.dataframe(df_t1.drop(columns=['ID_INTERNO', 'CIDADE/UF_ORIGEM', 'CIDADE/UF_DESTINO', 'ANO_COLETA', 'MES_COLETA', 'SEMESTRE_COLETA'], errors='ignore'), use_container_width=True, height=400)
+
     else:
         st.info("O Banco de Dados está vazio. Sincronize a matriz no painel acima.")
 
@@ -341,8 +346,10 @@ with tab2:
                 st.write(f"📅 **DATA DE PREVISÃO DE ENTREGA:** {d_pre}")
                 st.write(f"📅 **DATA ENTREGA:** {d_ent}")
                 
-                obs_texto = linha['OBSERVAÇÃO'] if pd.notnull(linha['OBSERVAÇÃO']) and linha['OBSERVAÇÃO'] != "NÃO INFORMADO" else ""
-                if obs_texto:
+                obs_texto = str(linha['OBSERVAÇÃO']).strip()
+                if pd.isna(linha['OBSERVAÇÃO']) or obs_texto in ["nan", "NÃO INFORMADO", "None", ""]:
+                    st.write("📝 **OBSERVAÇÃO:** Nenhuma observação registrada.")
+                else:
                     st.write(f"📝 **OBSERVAÇÃO:** {obs_texto}")
                 
                 if linha['PERFORMANCE_SLA'] == 'NO PRAZO': 
