@@ -2,12 +2,8 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from geopy.geocoders import Nominatim
-from geopy.extra.rate_limiter import RateLimiter
-from geopy.distance import geodesic
 import os
 import uuid
-import time
 
 # ==========================================
 # 1. CONFIGURAÇÃO DA PÁGINA E DESIGN PREMIUM
@@ -32,9 +28,26 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. MOTOR DO BANCO DE DADOS (OTIMIZADO)
+# 2. MOTOR DO BANCO DE DADOS (ULTRA-RÁPIDO)
 # ==========================================
 ARQUIVO_DB = "banco_fretes_final.csv"
+
+# Coordenadas estáticas embutidas para carregamento em 0.001 segundos (Sem satélite externo)
+COORDENADAS_ESTADOS = {
+    'AC': (-9.0238, -70.8120), 'AL': (-9.5328, -36.6698), 'AP': (1.4192, -51.7792),
+    'AM': (-3.4168, -65.8561), 'BA': (-12.5797, -41.7007), 'CE': (-5.4984, -39.3206),
+    'DF': (-15.7998, -47.8645), 'ES': (-19.1834, -40.3089), 'GO': (-15.8270, -49.8362),
+    'MA': (-4.9609, -45.2744), 'MT': (-12.6819, -56.9211), 'MS': (-20.7722, -54.3647),
+    'MG': (-18.5122, -44.5550), 'PA': (-1.9981, -54.9306), 'PB': (-7.2399, -36.7820),
+    'PR': (-25.2521, -52.0215), 'PE': (-8.8137, -36.9541), 'PI': (-7.7183, -42.7289),
+    'RJ': (-22.9094, -43.2094), 'RN': (-5.7945, -36.5664), 'RS': (-30.0346, -51.2177),
+    'RO': (-11.5057, -63.5806), 'RR': (2.7376, -62.0751), 'SC': (-27.2423, -50.2189),
+    'SP': (-23.5505, -46.6333), 'SE': (-10.5741, -37.3857), 'TO': (-10.1843, -48.3336),
+    'SAO PAULO': (-23.5505, -46.6333), 'MINAS GERAIS': (-18.5122, -44.5550), 
+    'RIO DE JANEIRO': (-22.9094, -43.2094), 'BAHIA': (-12.5797, -41.7007),
+    'PARANA': (-25.2521, -52.0215), 'RIO GRANDE DO SUL': (-30.0346, -51.2177),
+    'SANTA CATARINA': (-27.2423, -50.2189), 'GOIAS': (-15.8270, -49.8362)
+}
 
 COLUNAS_PADRAO = [
     'ID_INTERNO', 'TRANSPORTADORA', 'CHAMADO DE FRETE / Nº PROCESSO', 'NUMERO DA NOTA', 
@@ -85,23 +98,6 @@ def limpar_dados(df):
 
     return df[COLUNAS_PADRAO], True, "Sucesso"
 
-@st.cache_data(show_spinner=False)
-def obter_coords(cidades_uf):
-    coords = {}
-    try:
-        geo = Nominatim(user_agent=f"app_fretes_{uuid.uuid4().hex[:8]}")
-        limitado = RateLimiter(geo.geocode, min_delay_seconds=0.5, error_wait_seconds=1.0)
-        for cid_uf in cidades_uf:
-            if cid_uf and 'NÃO' not in str(cid_uf).upper():
-                try:
-                    loc = limitado(f"{cid_uf}, Brasil", timeout=2)
-                    if loc: coords[cid_uf] = (loc.latitude, loc.longitude)
-                except Exception:
-                    continue
-    except Exception:
-        pass
-    return coords
-
 def avaliar_prazo(row):
     if pd.isna(row['DATA ENTREGUE']): return 'EM ANDAMENTO'
     if pd.isna(row['DATA DE PREVISÃO DE ENTREGA']): return 'SEM PREVISÃO'
@@ -135,7 +131,7 @@ with st.expander("📥 Importar Dados (Atualizar Base)"):
                     if sucesso:
                         st.session_state.banco_dados = df_limpo
                         df_limpo.to_csv(ARQUIVO_DB, index=False)
-                        st.success("Dados sincronizados com sucesso!")
+                        st.success("Dados processados com sucesso! Painel atualizado.")
                         st.rerun()
                     else:
                         st.error(f"Erro na Planilha: {msg}")
@@ -152,13 +148,11 @@ if not df.empty:
     df['CIDADE/UF_ORIGEM'] = df['CIDADE ORIGEM'] + ", " + df['ESTADO ORIGEM']
     df['CIDADE/UF_DESTINO'] = df['CIDADE DESTINO'] + ", " + df['ESTADO DESTINO']
     
-    todas_cidades = pd.concat([df['CIDADE/UF_ORIGEM'], df['CIDADE/UF_DESTINO']]).unique()
-    dic_coords = obter_coords(todas_cidades)
-    
-    df['lat_o'] = df['CIDADE/UF_ORIGEM'].map(lambda x: dic_coords.get(x, (None, None))[0])
-    df['lon_o'] = df['CIDADE/UF_ORIGEM'].map(lambda x: dic_coords.get(x, (None, None))[1])
-    df['lat_d'] = df['CIDADE/UF_DESTINO'].map(lambda x: dic_coords.get(x, (None, None))[0])
-    df['lon_d'] = df['CIDADE/UF_DESTINO'].map(lambda x: dic_coords.get(x, (None, None))[1])
+    # Mapeamento Instantâneo sem internet
+    df['lat_o'] = df['ESTADO ORIGEM'].map(lambda x: COORDENADAS_ESTADOS.get(str(x).upper(), (None, None))[0])
+    df['lon_o'] = df['ESTADO ORIGEM'].map(lambda x: COORDENADAS_ESTADOS.get(str(x).upper(), (None, None))[1])
+    df['lat_d'] = df['ESTADO DESTINO'].map(lambda x: COORDENADAS_ESTADOS.get(str(x).upper(), (None, None))[0])
+    df['lon_d'] = df['ESTADO DESTINO'].map(lambda x: COORDENADAS_ESTADOS.get(str(x).upper(), (None, None))[1])
 
 # ==========================================
 # NAVEGAÇÃO ENTRE ABAS
@@ -175,17 +169,15 @@ with tab1:
         with col_filtros:
             st.markdown("<h4 style='color: #1C83E1;'>🔎 Filtros de Análise</h4>", unsafe_allow_html=True)
             
-            # NOVOS FILTROS
-            f_dt_inicio = st.date_input("Data Coleta (A partir de)", value=None)
-            f_dt_fim = st.date_input("Data Coleta (Até)", value=None)
+            f_dt_inicio = st.date_input("Data Coleta (A partir de)", value=None, key="p1_dt_ini")
+            f_dt_fim = st.date_input("Data Coleta (Até)", value=None, key="p1_dt_fim")
             
             opcoes_pedidos_p1 = ["TODOS"] + sorted(df['Nº DE PEDIDO'].unique())
-            f_ped_p1 = st.selectbox("Nº Pedido", opcoes_pedidos_p1)
+            f_ped_p1 = st.selectbox("Nº Pedido", opcoes_pedidos_p1, key="p1_ped")
             
             f_filial = st.multiselect("Filial", sorted(df['FILIAL'].unique()))
             f_transp = st.multiselect("Transportadora", sorted(df['TRANSPORTADORA'].unique()))
             f_vei = st.multiselect("Veículo", sorted(df['VEÍCULO'].unique()))
-            f_sts = st.multiselect("Status Fretes", sorted(df['STATUS FRETES'].unique()))
 
         df_t1 = df.copy()
         if f_dt_inicio: df_t1 = df_t1[df_t1['DATA COLETA'].dt.date >= f_dt_inicio]
@@ -195,17 +187,15 @@ with tab1:
         if f_filial: df_t1 = df_t1[df_t1['FILIAL'].isin(f_filial)]
         if f_transp: df_t1 = df_t1[df_t1['TRANSPORTADORA'].isin(f_transp)]
         if f_vei: df_t1 = df_t1[df_t1['VEÍCULO'].isin(f_vei)]
-        if f_sts: df_t1 = df_t1[df_t1['STATUS FRETES'].isin(f_sts)]
 
         with col_conteudo:
             st.markdown("#### Resumo da Operação")
             v1, v2 = st.columns(2)
-            v1.metric("💰 Valor total de frete", f"R$ {df_t1['VLR DO FRETE'].sum():,.2f}")
-            v2.metric("📊 Indicador Responsável", "Pedro Anjos")
+            v1.metric("💰 Valor Total de Fretes", f"R$ {df_t1['VLR DO FRETE'].sum():,.2f}")
+            v2.metric("📋 Indicador Responsável", "Pedro Anjos")
             
             st.divider()
             
-            # GRÁFICOS MANTIDOS E PIZZA RETORNADA
             cg1, cg2 = st.columns(2)
             with cg1:
                 top5_transp = df_t1['TRANSPORTADORA'].value_counts().nlargest(5).reset_index()
@@ -219,7 +209,7 @@ with tab1:
             with cg2:
                 df_filial_gasto = df_t1.groupby('FILIAL')['VLR DO FRETE'].sum().reset_index().sort_values('VLR DO FRETE', ascending=True)
                 fig_filial = px.bar(df_filial_gasto, y='FILIAL', x='VLR DO FRETE', orientation='h', 
-                                    title="Valor total de frete por Filial", color='VLR DO FRETE', color_continuous_scale='Teal')
+                                    title="Valor Total de Frete por Filial", color='VLR DO FRETE', color_continuous_scale='Teal')
                 fig_filial.update_layout(margin=dict(l=0, r=0, t=40, b=0), coloraxis_showscale=False)
                 st.plotly_chart(fig_filial, use_container_width=True)
             
@@ -238,18 +228,18 @@ with tab1:
         st.info("👆 Importe a planilha para visualizar os dados.")
 
 # ==========================================
-# PÁGINA 2: MAPA TRAÇADO (LEVE) E SLA
+# PÁGINA 2: MAPA TRAÇADO E SLA
 # ==========================================
 with tab2:
     if not df.empty:
         st.markdown("<h4 style='color: #1C83E1;'>🧭 Filtros de Rastreamento</h4>", unsafe_allow_html=True)
         
         cf1, cf2, cf3 = st.columns(3)
-        f2_dcoleta = cf1.date_input("Data Coleta (Até)", value=None)
-        f2_dentrega = cf2.date_input("Data Entrega (Até)", value=None)
+        f2_dcoleta = cf1.date_input("Data Coleta (Até)", value=None, key="p2_dt_col")
+        f2_dentrega = cf2.date_input("Data Entrega (Até)", value=None, key="p2_dt_ent")
         
         opcoes_sla = ["TODOS", "NO PRAZO", "ATRASADO", "EM ANDAMENTO"]
-        f2_sla = cf3.selectbox("🚥 Status SLA", opcoes_sla) # NOVO FILTRO SLA
+        f2_sla = cf3.selectbox("🚥 Status SLA", opcoes_sla, key="p2_sla") 
 
         c1, c2, c3, c4 = st.columns(4)
         opcoes_pedidos = ["TODOS"] + sorted(df['Nº DE PEDIDO'].unique())
@@ -276,12 +266,11 @@ with tab2:
         col_mapa, col_dados = st.columns([6, 4], gap="large")
         
         with col_mapa:
-            st.markdown("**Rotas de Frete (Mapa Rápido)**")
+            st.markdown("**Rotas de Frete (Mapa Tracejado Rápido)**")
             
             df_mapa = df_t2.dropna(subset=['lat_o', 'lon_o', 'lat_d', 'lon_d']).copy()
             
             if not df_mapa.empty:
-                # MAPA PLOTLY LEVE COM LINHAS
                 lats, lons = [], []
                 for _, row in df_mapa.iterrows():
                     lats.extend([row['lat_o'], row['lat_d'], None])
@@ -289,7 +278,7 @@ with tab2:
                 
                 fig_mapa = go.Figure(go.Scattermapbox(
                     mode="lines+markers", lon=lons, lat=lats,
-                    marker={'size': 6, 'color': '#00C49F'},
+                    marker={'size': 8, 'color': '#00C49F'},
                     line={'width': 2, 'color': '#1C83E1'}
                 ))
                 
@@ -297,13 +286,14 @@ with tab2:
                     margin={"r":0,"t":0,"l":0,"b":0},
                     mapbox={
                         'style': "carto-positron",
-                        'center': {'lon': df_mapa['lon_o'].mean(), 'lat': df_mapa['lat_o'].mean()},
+                        'center': {'lon': -52.0, 'lat': -14.0},
                         'zoom': 3
-                    }
+                    },
+                    showlegend=False
                 )
                 st.plotly_chart(fig_mapa, use_container_width=True)
             else:
-                st.info("Nenhuma coordenada de mapa encontrada ou filtros muito restritos.")
+                st.info("O filtro atual não possui destinos mapeados ou a base está vazia.")
 
         with col_dados:
             tem_pedido_unico = (f2_ped != "TODOS" and not df_t2.empty)
@@ -365,14 +355,13 @@ with tab3:
     if not df.empty:
         st.markdown("<h4 style='color: #1C83E1;'>🏆 Quadro de Líderes (Ranking)</h4>", unsafe_allow_html=True)
         
-        # NOVOS FILTROS ESTRATÉGICOS
         cf_r1, cf_r2 = st.columns(2)
         
         opcoes_filial_rank = ["TODAS"] + sorted(df['FILIAL'].astype(str).unique())
-        f_filial_rank = cf_r1.selectbox("Filtrar por Filial", opcoes_filial_rank)
+        f_filial_rank = cf_r1.selectbox("Filtrar por Filial", opcoes_filial_rank, key="p3_filial")
         
         opcoes_otif = ["TODOS", "ADERENTES (>= 95%)", "CRÍTICOS (< 70%)"]
-        f_otif_rank = cf_r2.selectbox("Performance OTIF / SLA", opcoes_otif)
+        f_otif_rank = cf_r2.selectbox("Performance OTIF / SLA", opcoes_otif, key="p3_otif")
         
         df_t3 = df.copy()
         if f_filial_rank != "TODAS":
@@ -398,7 +387,6 @@ with tab3:
             rank_sla.columns = ['TRANSPORTADORA', 'OTD_PERCENTUAL']
             rank_sla = rank_sla[rank_sla['OTD_PERCENTUAL'] > 0]
             
-            # APLICAÇÃO DO FILTRO OTIF
             if f_otif_rank == "ADERENTES (>= 95%)":
                 rank_sla = rank_sla[rank_sla['OTD_PERCENTUAL'] >= 95.0]
             elif f_otif_rank == "CRÍTICOS (< 70%)":
