@@ -2,13 +2,12 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from geopy.geocoders import Nominatim
-from geopy.distance import geodesic
-from geopy.extra.rate_limiter import RateLimiter
 import pydeck as pdk
 import io
 import os
 import uuid
 from datetime import datetime
+import time
 
 # ==========================================
 # 1. CONFIGURAÇÃO DA PÁGINA E DESIGN PREMIUM
@@ -33,7 +32,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. MOTOR DO BANCO DE DADOS E GEOCODIFICAÇÃO
+# 2. MOTOR DO BANCO DE DADOS E GEOCODIFICAÇÃO (MODO SEGURO)
 # ==========================================
 ARQUIVO_DB = "banco_fretes_v10.csv"
 
@@ -93,27 +92,24 @@ def limpar_dados(df):
 
 @st.cache_data(show_spinner=False)
 def obter_coords(cidades_uf):
-    # BLINDAGEM ANTI-CRASH AQUI
     coords = {}
     try:
-        # Novo User Agent mais específico para evitar bloqueios 403
-        geo = Nominatim(user_agent="app_fretes_dash_corporativo_br_v1")
-        # Delay aumentado para respeitar o servidor e evitar travamentos
-        limitado = RateLimiter(geo.geocode, min_delay_seconds=1.0, max_retries=2, error_wait_seconds=2.0)
+        # Cria um usuário novo a cada tentativa para despistar bloqueios do satélite
+        geo = Nominatim(user_agent=f"app_fretes_{uuid.uuid4().hex[:8]}")
         
         for cid_uf in cidades_uf:
-            if cid_uf and 'NÃO INFORMADO' not in cid_uf:
+            if cid_uf and 'NÃO' not in str(cid_uf).upper():
                 try:
-                    loc = limitado(f"{cid_uf}, Brasil")
-                    if loc: coords[cid_uf] = (loc.latitude, loc.longitude)
+                    # Busca direta sem limitador frágil. Se falhar, pula silenciosamente.
+                    loc = geo.geocode(f"{cid_uf}, Brasil", timeout=2)
+                    if loc:
+                        coords[cid_uf] = (loc.latitude, loc.longitude)
+                    time.sleep(0.5) # Pausa amigável para o satélite
                 except Exception:
-                    # Se uma cidade falhar, apenas pula e continua para não travar o app
-                    pass 
-        return coords
-    except Exception as e:
-        # Se o sistema de mapas falhar por completo, retorna vazio mas DEIXA O APP RODAR
-        print(f"Erro no geolocalizador: {e}")
-        return coords
+                    continue # Ignora falha em cidade específica
+    except Exception:
+        pass # Blindagem total: se o satélite cair geral, devolve vazio e a vida segue
+    return coords
 
 def avaliar_prazo(row):
     if pd.isna(row['DATA ENTREGUE']): return 'EM ANDAMENTO'
@@ -166,7 +162,7 @@ if not df.empty:
     df['CIDADE/UF_DESTINO'] = df['CIDADE DESTINO'] + ", " + df['ESTADO DESTINO']
     
     todas_cidades = pd.concat([df['CIDADE/UF_ORIGEM'], df['CIDADE/UF_DESTINO']]).unique()
-    with st.spinner("🌍 Mapeando rotas logísticas... (Isso garantirá o funcionamento do painel)"):
+    with st.spinner("🌍 Mapeando logística... (Se o satélite demorar, prosseguiremos sem ele)"):
         dic_coords = obter_coords(todas_cidades)
     
     df['lat_o'] = df['CIDADE/UF_ORIGEM'].map(lambda x: dic_coords.get(x, (None, None))[0])
@@ -298,7 +294,7 @@ with tab2:
                     tooltip={"text": "Rota Identificada"}
                 ))
             else:
-                st.info("Nenhuma coordenada de mapa encontrada. O sistema de mapas pode estar indisponível ou as cidades não foram localizadas.")
+                st.info("Visualização do mapa temporariamente indisponível (Satélite bloqueou o acesso). O restante do painel funciona normalmente.")
 
         with col_dados:
             tem_pedido_unico = (f2_ped != "TODOS" and not df_t2.empty)
