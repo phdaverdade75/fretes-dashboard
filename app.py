@@ -69,7 +69,7 @@ def limpar_dados(df):
     df.rename(columns=mapeamento, inplace=True)
 
     if 'Nº DE PEDIDO' not in df.columns: 
-        return df, False, "A coluna 'Nº DE PEDIDO' ou 'NUMERO DO PEDIDO' não foi encontrada na planilha."
+        return df, False, "A coluna 'Nº DE PEDIDO' não foi encontrada na planilha."
         
     if 'ID_INTERNO' not in df.columns: 
         df['ID_INTERNO'] = [str(uuid.uuid4()) for _ in range(len(df))]
@@ -125,8 +125,6 @@ with st.expander("📥 Importar Dados (Atualizar Base)"):
             if arq_upload:
                 try:
                     motor = 'pyxlsb' if arq_upload.name.lower().endswith('.xlsb') else 'openpyxl'
-                    
-                    # RESTAURADA: Inteligência de busca de aba
                     xls = pd.ExcelFile(arq_upload, engine=motor)
                     aba_correta = xls.sheet_names[0]
                     for aba in xls.sheet_names:
@@ -142,7 +140,7 @@ with st.expander("📥 Importar Dados (Atualizar Base)"):
                         st.success("Dados sincronizados com sucesso!")
                         st.rerun()
                     else:
-                        st.error(f"Erro na Planilha: {msg}") # RESTAURADA: Mensagem de erro caso a coluna falhe
+                        st.error(f"Erro na Planilha: {msg}")
                 except Exception as e: 
                     st.error(f"Erro de processamento: {e}")
             else:
@@ -156,9 +154,10 @@ if not df.empty:
     df['CIDADE/UF_ORIGEM'] = df['CIDADE ORIGEM'] + ", " + df['ESTADO ORIGEM']
     df['CIDADE/UF_DESTINO'] = df['CIDADE DESTINO'] + ", " + df['ESTADO DESTINO']
     
-    # Processamento de Coordenadas para o Mapa Traçado
+    # === AQUI ESTÁ A BARRA DE CARREGAMENTO PARA NÃO PARECER TRAVADO ===
     todas_cidades = pd.concat([df['CIDADE/UF_ORIGEM'], df['CIDADE/UF_DESTINO']]).unique()
-    dic_coords = obter_coords(todas_cidades)
+    with st.spinner("🌍 Processando satélite e mapeando novas rotas (Pode levar alguns segundos na primeira vez)..."):
+        dic_coords = obter_coords(todas_cidades)
     
     df['lat_o'] = df['CIDADE/UF_ORIGEM'].map(lambda x: dic_coords.get(x, (None, None))[0])
     df['lon_o'] = df['CIDADE/UF_ORIGEM'].map(lambda x: dic_coords.get(x, (None, None))[1])
@@ -221,7 +220,7 @@ with tab1:
             st.markdown("### 📋 Detalhamento de Dados (Visão Global)")
             st.dataframe(df_t1.drop(columns=['ID_INTERNO', 'lat_o', 'lon_o', 'lat_d', 'lon_d', 'CIDADE/UF_ORIGEM', 'CIDADE/UF_DESTINO'], errors='ignore'), use_container_width=True, height=400)
     else:
-        st.info("O Banco de Dados está vazio. Sincronize a matriz no painel acima.")
+        st.info("👆 O Banco de Dados está vazio. Envie a sua planilha no botão 'Importar Dados' acima para ativar o sistema.")
 
 # ==========================================
 # PÁGINA 2: MAPA TRAÇADO E PERFORMANCE (SLA)
