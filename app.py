@@ -68,8 +68,11 @@ def limpar_dados(df):
     }
     df.rename(columns=mapeamento, inplace=True)
 
-    if 'Nº DE PEDIDO' not in df.columns: return df, False, "Erro de Coluna"
-    if 'ID_INTERNO' not in df.columns: df['ID_INTERNO'] = [str(uuid.uuid4()) for _ in range(len(df))]
+    if 'Nº DE PEDIDO' not in df.columns: 
+        return df, False, "A coluna 'Nº DE PEDIDO' ou 'NUMERO DO PEDIDO' não foi encontrada na planilha."
+        
+    if 'ID_INTERNO' not in df.columns: 
+        df['ID_INTERNO'] = [str(uuid.uuid4()) for _ in range(len(df))]
 
     for col in COLUNAS_PADRAO:
         if col not in df.columns: df[col] = "NÃO INFORMADO"
@@ -122,14 +125,28 @@ with st.expander("📥 Importar Dados (Atualizar Base)"):
             if arq_upload:
                 try:
                     motor = 'pyxlsb' if arq_upload.name.lower().endswith('.xlsb') else 'openpyxl'
-                    df_temp = pd.read_excel(arq_upload, engine=motor, sheet_name=0)
+                    
+                    # RESTAURADA: Inteligência de busca de aba
+                    xls = pd.ExcelFile(arq_upload, engine=motor)
+                    aba_correta = xls.sheet_names[0]
+                    for aba in xls.sheet_names:
+                        if 'FRETE' in aba.upper() or 'DADOS' in aba.upper() or 'OPERA' in aba.upper():
+                            aba_correta = aba; break
+                            
+                    df_temp = pd.read_excel(arq_upload, engine=motor, sheet_name=aba_correta)
                     df_limpo, sucesso, msg = limpar_dados(df_temp)
+                    
                     if sucesso:
                         st.session_state.banco_dados = df_limpo
                         df_limpo.to_csv(ARQUIVO_DB, index=False)
                         st.success("Dados sincronizados com sucesso!")
                         st.rerun()
-                except Exception as e: st.error(f"Erro: {e}")
+                    else:
+                        st.error(f"Erro na Planilha: {msg}") # RESTAURADA: Mensagem de erro caso a coluna falhe
+                except Exception as e: 
+                    st.error(f"Erro de processamento: {e}")
+            else:
+                st.warning("Por favor, anexe uma planilha antes de clicar em sincronizar.")
 
 st.divider()
 df = st.session_state.banco_dados
@@ -175,7 +192,6 @@ with tab1:
 
         with col_conteudo:
             st.markdown("#### Resumo da Operação")
-            # Atualizado: Retirado Cartão NF
             v1, v2, v3 = st.columns(3)
             v1.metric("💰 Valor total de frete", f"R$ {df_t1['VLR DO FRETE'].sum():,.2f}")
             v2.metric("📦 Volume (Pedidos)", df_t1['Nº DE PEDIDO'].nunique())
@@ -183,13 +199,12 @@ with tab1:
             
             st.divider()
             
-            # NOVOS GRÁFICOS HORIZONTAIS
             cg1, cg2 = st.columns(2)
             
             with cg1:
                 top5_transp = df_t1['TRANSPORTADORA'].value_counts().nlargest(5).reset_index()
                 top5_transp.columns = ['TRANSPORTADORA', 'QTD']
-                top5_transp = top5_transp.sort_values('QTD', ascending=True) # Para ficar no topo do gráfico
+                top5_transp = top5_transp.sort_values('QTD', ascending=True) 
                 fig_top5 = px.bar(top5_transp, y='TRANSPORTADORA', x='QTD', orientation='h', 
                                   title="Top 5 Transportadoras (Qtd. de Fretes)", color='QTD', color_continuous_scale='Blues')
                 fig_top5.update_layout(margin=dict(l=0, r=0, t=40, b=0), coloraxis_showscale=False)
@@ -215,7 +230,6 @@ with tab2:
     if not df.empty:
         st.markdown("<h4 style='color: #1C83E1;'>🧭 Filtros de Rastreamento</h4>", unsafe_allow_html=True)
         
-        # NOVOS FILTROS DE DATA "ATÉ"
         cf1, cf2 = st.columns(2)
         f2_dcoleta = cf1.date_input("Data Coleta (Até esta data)", value=None)
         f2_dentrega = cf2.date_input("Data Entrega (Até esta data)", value=None)
@@ -247,7 +261,6 @@ with tab2:
         with col_mapa:
             st.markdown("**Rotas de Frete (Origem 🔵 -> Destino 🟢)**")
             
-            # FILTRAGEM SEGURA PARA O MAPA DE ROTAS (PYDECK 3D)
             df_mapa = df_t2.dropna(subset=['lat_o', 'lon_o', 'lat_d', 'lon_d']).copy()
             
             if not df_mapa.empty:
@@ -256,8 +269,8 @@ with tab2:
                     data=df_mapa,
                     get_source_position=["lon_o", "lat_o"],
                     get_target_position=["lon_d", "lat_d"],
-                    get_source_color=[28, 131, 225, 200],  # Azul Origem
-                    get_target_color=[0, 196, 159, 200],   # Verde Destino
+                    get_source_color=[28, 131, 225, 200],  
+                    get_target_color=[0, 196, 159, 200],   
                     get_width=3,
                     auto_highlight=True,
                     pickable=True
@@ -306,7 +319,6 @@ with tab2:
                 
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
-                # Motor de Avaliação SLA Logístico
                 if f2_tra != "TODOS":
                     qtd_atraso = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'ATRASADO'])
                     qtd_no_prazo = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'NO PRAZO'])
@@ -354,16 +366,14 @@ with tab3:
         cr1, cr2 = st.columns(2)
         
         with cr1:
-            # Ranking de Volume (Pedidos)
             rank_vol = df.groupby('TRANSPORTADORA')['Nº DE PEDIDO'].nunique().reset_index()
-            rank_vol = rank_vol.sort_values('Nº DE PEDIDO', ascending=True) # Ascending para barra horizontal exibir maior no topo
+            rank_vol = rank_vol.sort_values('Nº DE PEDIDO', ascending=True) 
             fig_rank_vol = px.bar(rank_vol, y='TRANSPORTADORA', x='Nº DE PEDIDO', orientation='h', 
                                   title="🏆 Ranking de Volume (Total de Pedidos)", color='Nº DE PEDIDO', color_continuous_scale='Blues')
             fig_rank_vol.update_layout(margin=dict(l=0, r=0, t=40, b=0), coloraxis_showscale=False)
             st.plotly_chart(fig_rank_vol, use_container_width=True)
 
         with cr2:
-            # Ranking de SLA (OTD)
             def calc_otd_global(grupo):
                 validos = grupo[grupo['PERFORMANCE_SLA'].isin(['NO PRAZO', 'ATRASADO'])]
                 if len(validos) == 0: return 0.0
@@ -372,7 +382,6 @@ with tab3:
             rank_sla = df.groupby('TRANSPORTADORA').apply(calc_otd_global).reset_index()
             rank_sla.columns = ['TRANSPORTADORA', 'OTD_PERCENTUAL']
             
-            # Filtra quem tem OTD e ordena do melhor (topo) para o pior
             rank_sla = rank_sla[rank_sla['OTD_PERCENTUAL'] > 0].sort_values('OTD_PERCENTUAL', ascending=True) 
             
             fig_rank_sla = px.bar(rank_sla, y='TRANSPORTADORA', x='OTD_PERCENTUAL', orientation='h', 
