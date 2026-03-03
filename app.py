@@ -157,7 +157,7 @@ def get_otd_info(otd):
 # 3. CABEÇALHO E UPLOAD
 # ==========================================
 st.title("🚚 FRETES ANALYTICS V1.0")
-st.caption("Painel Executivo de Gestão Logística")
+st.caption("Painel Executivo de Gestão Logística | Indicadores elaborados por Pedro Anjos")
 
 with st.expander("📥 Importar Dados (Atualizar Base)", expanded=True):
     col_up, col_btn = st.columns([8, 2])
@@ -247,6 +247,20 @@ with tab1:
                 fig_veiculo = px.bar(df_veiculo_uso, y='VEÍCULO', x='Nº DE PEDIDO', orientation='h', title="Veículos Mais Utilizados", color='Nº DE PEDIDO', color_continuous_scale='Blues')
                 fig_veiculo.update_layout(margin=dict(l=0, r=0, t=40, b=0), coloraxis_showscale=False)
                 st.plotly_chart(fig_veiculo, use_container_width=True)
+            
+            st.write("")
+            
+            # --- DE VOLTA: GRÁFICO DE PIZZA (MEDIÇÃO X SUPRIMENTOS) ---
+            df_med_gasto = df_t1.groupby('MEDIÇÃO/SUPRIMENTOS')['Nº DE PEDIDO'].nunique().reset_index()
+            fig_med_sup = px.pie(df_med_gasto, values='Nº DE PEDIDO', names='MEDIÇÃO/SUPRIMENTOS', hole=0.4, 
+                                 title="Volume: Suprimentos x Medição")
+            fig_med_sup.update_layout(margin=dict(l=0, r=0, t=40, b=0), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
+            st.plotly_chart(fig_med_sup, use_container_width=True)
+            
+            # --- DE VOLTA: TABELA DIÁRIO DE BORDO (FILTRADO) ---
+            st.divider()
+            st.markdown("### 📋 Diário de Bordo (Filtrado)")
+            st.dataframe(df_t1.drop(columns=['ID_INTERNO', 'lat_o', 'lon_o', 'lat_d', 'lon_d'], errors='ignore'), use_container_width=True, height=400)
     else:
         st.info("👆 Por favor, faça o upload de uma folha de cálculo para iniciar.")
 
@@ -302,17 +316,16 @@ with tab2:
                     for status, cor in cores_rotas.items():
                         df_status = df_mapa[df_mapa['PERFORMANCE_SLA'] == status]
                         if not df_status.empty:
-                            # Agrupar rotas únicas para não sobrecarregar a API
                             rotas_unicas = df_status[['lat_o', 'lon_o', 'lat_d', 'lon_d']].drop_duplicates()
                             
                             lats, lons = [], []
                             for _, rota in rotas_unicas.iterrows():
                                 ro_lons, ro_lats, _ = obter_rota_rodoviaria(rota['lon_o'], rota['lat_o'], rota['lon_d'], rota['lat_d'])
                                 
-                                if ro_lons: # Se conseguiu as rodovias reais
+                                if ro_lons: 
                                     lons.extend(ro_lons + [None])
                                     lats.extend(ro_lats + [None])
-                                else: # Plano B: Linha reta se falhar a internet
+                                else: 
                                     lons.extend([rota['lon_o'], rota['lon_d'], None])
                                     lats.extend([rota['lat_o'], rota['lat_d'], None])
                             
@@ -366,7 +379,6 @@ with tab2:
                 st.write(f"💰 **FRETE:** R$ {linha['VLR DO FRETE']:,.2f} | 📄 **NOTA:** R$ {linha['VALOR DA NOTA']:,.2f}")
                 st.write(f"📤 **ORIGEM:** {linha['CIDADE ORIGEM']} | 📥 **DESTINO:** {linha['CIDADE DESTINO']}")
                 
-                # CÁLCULO REAL DA RODOVIA
                 _, _, dist_km = obter_rota_rodoviaria(linha['lon_o'], linha['lat_o'], linha['lon_d'], linha['lat_d'])
                 if dist_km is not None:
                     st.write(f"🛣️ **DISTÂNCIA:** {dist_km:,.0f} km (Rota Real via Rodovias)".replace(',', '.'))
