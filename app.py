@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import os
 import uuid
 import math
+import requests
 
 # ==========================================
 # 1. CONFIGURAÇÃO DA PÁGINA E DESIGN PREMIUM
@@ -113,34 +114,44 @@ def get_coords(estado_str, cidade_str):
             if nome in cid: return COORDENADAS_ESTADOS[nomes_estados[nome]]
     return (None, None)
 
-def calcular_distancia(lat1, lon1, lat2, lon2):
-    """Calcula a distância em linha reta (Fórmula de Haversine) entre dois pontos."""
+@st.cache_data(show_spinner=False)
+def obter_rota_rodoviaria(lon1, lat1, lon2, lat2):
+    """Busca o caminho real pelas rodovias usando a API gratuita do OSRM."""
     if pd.isna(lat1) or pd.isna(lon1) or pd.isna(lat2) or pd.isna(lon2):
-        return None
-    R = 6371.0 # Raio da Terra em km
-    lat1_rad = math.radians(lat1)
-    lon1_rad = math.radians(lon1)
-    lat2_rad = math.radians(lat2)
-    lon2_rad = math.radians(lon2)
-    
+        return None, None, None
+    try:
+        url = f"http://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=full&geometries=geojson"
+        req = requests.get(url, timeout=5)
+        if req.status_code == 200:
+            dados = req.json()
+            if dados.get('code') == 'Ok':
+                coords = dados['routes'][0]['geometry']['coordinates']
+                lons = [c[0] for c in coords]
+                lats = [c[1] for c in coords]
+                dist_km = dados['routes'][0]['distance'] / 1000.0
+                return lons, lats, dist_km
+    except:
+        pass
+    return None, None, None
+
+def calcular_distancia_reta(lat1, lon1, lat2, lon2):
+    """Plano B: Calcula linha reta se a API rodoviária falhar."""
+    if pd.isna(lat1) or pd.isna(lon1) or pd.isna(lat2) or pd.isna(lon2): return None
+    R = 6371.0 
+    lat1_rad, lon1_rad = math.radians(lat1), math.radians(lon1)
+    lat2_rad, lon2_rad = math.radians(lat2), math.radians(lon2)
     dlon = lon2_rad - lon1_rad
     dlat = lat2_rad - lat1_rad
-    
     a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
 def get_otd_info(otd):
-    if otd < 0:
-        return "N/A", "#808080", "⚪", "Não há volume finalizado para avaliar OTD."
-    elif otd >= 95.0:
-        return "EXCELENTE", "#00C49F", "🟢", "Transportadora altamente aderente ao SLA. Recomenda-se priorização em novas demandas, ampliação de volume e fortalecimento da parceria."
-    elif otd >= 85.0:
-        return "BOA", "#1C83E1", "🔵", "Performance estável, porém com oportunidade de otimização. Monitoramento contínuo e reuniões periódicas de alinhamento operacional."
-    elif otd >= 70.0:
-        return "ALERTA", "#FFA500", "🟡", "Indício de instabilidade operacional. Necessário plano de ação estruturado com metas claras de recuperação de SLA e acompanhamento mensal."
-    else:
-        return "CRÍTICA", "#FF4B4B", "🔴", "Performance incompatível com o nível de serviço esperado. Avaliar aplicação de penalidades contratuais, redução de volume ou substituição do fornecedor."
+    if otd < 0: return "N/A", "#808080", "⚪", "Não há volume finalizado para avaliar OTD."
+    elif otd >= 95.0: return "EXCELENTE", "#00C49F", "🟢", "Transportadora altamente aderente ao SLA. Recomenda-se priorização em novas demandas."
+    elif otd >= 85.0: return "BOA", "#1C83E1", "🔵", "Performance estável, porém com oportunidade de otimização. Monitoramento contínuo recomendado."
+    elif otd >= 70.0: return "ALERTA", "#FFA500", "🟡", "Indício de instabilidade operacional. Necessário plano de ação de recuperação de SLA."
+    else: return "CRÍTICA", "#FF4B4B", "🔴", "Performance incompatível. Avaliar penalidades contratuais, redução de volume ou substituição."
 
 # ==========================================
 # 3. CABEÇALHO E UPLOAD
@@ -201,23 +212,13 @@ with tab1:
         
         with col_filtros:
             st.markdown("<h4 style='color: #1C83E1;'>🔎 Filtros de Análise</h4>", unsafe_allow_html=True)
-            
-            st.markdown("**Período de Coleta**")
             f1_dt_inicio = st.date_input("Data Inicial", value=None, key="p1_dt_ini")
             f1_dt_fim = st.date_input("Data Final", value=None, key="p1_dt_fim")
             
-            st.markdown("**Filtros Operacionais**")
-            opcoes_pedidos_p1 = ["TODOS"] + sorted(df['Nº DE PEDIDO'].unique())
-            f1_ped = st.selectbox("Nº Pedido Específico", opcoes_pedidos_p1, key="p1_ped")
-            
-            opcoes_filial_p1 = ["TODAS"] + sorted(df['FILIAL'].unique())
-            f1_filial = st.selectbox("Filial", opcoes_filial_p1, key="p1_fil")
-            
-            opcoes_transp_p1 = ["TODAS"] + sorted(df['TRANSPORTADORA'].unique())
-            f1_transp = st.selectbox("Transportadora", opcoes_transp_p1, key="p1_tra")
-            
-            opcoes_vei_p1 = ["TODOS"] + sorted(df['VEÍCULO'].unique())
-            f1_vei = st.selectbox("Veículo", opcoes_vei_p1, key="p1_vei")
+            f1_ped = st.selectbox("Nº Pedido Específico", ["TODOS"] + sorted(df['Nº DE PEDIDO'].unique()), key="p1_ped")
+            f1_filial = st.selectbox("Filial", ["TODAS"] + sorted(df['FILIAL'].unique()), key="p1_fil")
+            f1_transp = st.selectbox("Transportadora", ["TODAS"] + sorted(df['TRANSPORTADORA'].unique()), key="p1_tra")
+            f1_vei = st.selectbox("Veículo", ["TODOS"] + sorted(df['VEÍCULO'].unique()), key="p1_vei")
 
         df_t1 = df.copy()
         if f1_dt_inicio: df_t1 = df_t1[df_t1['DATA COLETA'].dt.date >= f1_dt_inicio]
@@ -228,7 +229,6 @@ with tab1:
         if f1_vei != "TODOS": df_t1 = df_t1[df_t1['VEÍCULO'] == f1_vei]
 
         with col_conteudo:
-            st.markdown("#### Resumo da Operação")
             v1, v2 = st.columns(2)
             v1.metric("💰 Faturamento Total Fretes", f"R$ {df_t1['VLR DO FRETE'].sum():,.2f}")
             v2.metric("📦 Total Fretes (Qtd. Pedidos)", df_t1['Nº DE PEDIDO'].nunique())
@@ -238,31 +238,17 @@ with tab1:
             cg1, cg2 = st.columns(2)
             with cg1:
                 df_filial_gasto = df_t1.groupby('FILIAL')['VLR DO FRETE'].sum().reset_index().sort_values('VLR DO FRETE', ascending=True)
-                fig_filial = px.bar(df_filial_gasto, y='FILIAL', x='VLR DO FRETE', orientation='h', 
-                                    title="Total Faturamento Fretes por Filial", color='VLR DO FRETE', color_continuous_scale='Teal')
+                fig_filial = px.bar(df_filial_gasto, y='FILIAL', x='VLR DO FRETE', orientation='h', title="Faturamento por Filial", color='VLR DO FRETE', color_continuous_scale='Teal')
                 fig_filial.update_layout(margin=dict(l=0, r=0, t=40, b=0), coloraxis_showscale=False)
                 st.plotly_chart(fig_filial, use_container_width=True)
 
             with cg2:
                 df_veiculo_uso = df_t1.groupby('VEÍCULO')['Nº DE PEDIDO'].nunique().reset_index().sort_values('Nº DE PEDIDO', ascending=True)
-                fig_veiculo = px.bar(df_veiculo_uso, y='VEÍCULO', x='Nº DE PEDIDO', orientation='h', 
-                                  title="Veículos Mais Utilizados (Qtd. Pedidos)", color='Nº DE PEDIDO', color_continuous_scale='Blues')
+                fig_veiculo = px.bar(df_veiculo_uso, y='VEÍCULO', x='Nº DE PEDIDO', orientation='h', title="Veículos Mais Utilizados", color='Nº DE PEDIDO', color_continuous_scale='Blues')
                 fig_veiculo.update_layout(margin=dict(l=0, r=0, t=40, b=0), coloraxis_showscale=False)
                 st.plotly_chart(fig_veiculo, use_container_width=True)
-            
-            st.write("")
-            
-            df_med_gasto = df_t1.groupby('MEDIÇÃO/SUPRIMENTOS')['Nº DE PEDIDO'].nunique().reset_index()
-            fig_med_sup = px.pie(df_med_gasto, values='Nº DE PEDIDO', names='MEDIÇÃO/SUPRIMENTOS', hole=0.4, 
-                                 title="Volume: Suprimentos x Medição")
-            fig_med_sup.update_layout(margin=dict(l=0, r=0, t=40, b=0), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
-            st.plotly_chart(fig_med_sup, use_container_width=True)
-            
-            st.divider()
-            st.markdown("### 📋 Diário de Bordo (Filtrado)")
-            st.dataframe(df_t1.drop(columns=['ID_INTERNO', 'lat_o', 'lon_o', 'lat_d', 'lon_d'], errors='ignore'), use_container_width=True, height=400)
     else:
-        st.info("👆 Por favor, faça o upload de uma folha de cálculo para iniciar a análise e visualizar os indicadores.")
+        st.info("👆 Por favor, faça o upload de uma folha de cálculo para iniciar.")
 
 # ==========================================
 # PÁGINA 2: MAPA DE CALOR E SLA
@@ -274,23 +260,13 @@ with tab2:
         cf1, cf2, cf3 = st.columns(3)
         f2_dt_inicio = cf1.date_input("Período Coleta (De)", value=None, key="p2_dt_ini")
         f2_dt_fim = cf2.date_input("Período Coleta (Até)", value=None, key="p2_dt_fim")
-        
-        opcoes_sla_p2 = ["TODOS", "NO PRAZO", "ATRASADO", "EM ANDAMENTO"]
-        f2_sla = cf3.selectbox("🚥 Status SLA", opcoes_sla_p2, key="p2_sla") 
+        f2_sla = cf3.selectbox("🚥 Status SLA", ["TODOS", "NO PRAZO", "ATRASADO", "EM ANDAMENTO"], key="p2_sla") 
 
         c1, c2, c3, c4 = st.columns(4)
-        
-        opcoes_pedidos_p2 = ["TODOS"] + sorted(df['Nº DE PEDIDO'].unique())
-        f2_ped = c1.selectbox("📌 Nº de Pedido", opcoes_pedidos_p2, key="p2_ped")
-        
-        opcoes_transp_p2 = ["TODAS"] + sorted(df['TRANSPORTADORA'].unique())
-        f2_tra = c2.selectbox("🏢 Transportadora", opcoes_transp_p2, key="p2_tra")
-        
-        opcoes_ccusto_p2 = ["TODOS"] + sorted(df['CENTRO DE CUSTO'].astype(str).unique())
-        f2_ccusto = c3.selectbox("📊 Centro de Custo", opcoes_ccusto_p2, key="p2_cc")
-        
-        opcoes_filial_p2 = ["TODAS"] + sorted(df['FILIAL'].astype(str).unique())
-        f2_filial = c4.selectbox("🏢 Filial", opcoes_filial_p2, key="p2_fil")
+        f2_ped = c1.selectbox("📌 Nº de Pedido", ["TODOS"] + sorted(df['Nº DE PEDIDO'].unique()), key="p2_ped")
+        f2_tra = c2.selectbox("🏢 Transportadora", ["TODAS"] + sorted(df['TRANSPORTADORA'].unique()), key="p2_tra")
+        f2_ccusto = c3.selectbox("📊 Centro de Custo", ["TODOS"] + sorted(df['CENTRO DE CUSTO'].astype(str).unique()), key="p2_cc")
+        f2_filial = c4.selectbox("🏢 Filial", ["TODAS"] + sorted(df['FILIAL'].astype(str).unique()), key="p2_fil")
 
         df_t2 = df.copy()
         if f2_dt_inicio: df_t2 = df_t2[df_t2['DATA COLETA'].dt.date >= f2_dt_inicio]
@@ -315,50 +291,49 @@ with tab2:
                 if sem_filtro:
                     st.markdown("**📍 Mapa de Calor (Volume Geral de Entregas)**")
                     fig_mapa.add_trace(go.Densitymapbox(
-                        lat=df_mapa['lat_d'],
-                        lon=df_mapa['lon_d'],
-                        z=[1] * len(df_mapa),
-                        radius=25,
-                        colorscale='Inferno',
-                        showscale=False
+                        lat=df_mapa['lat_d'], lon=df_mapa['lon_d'], z=[1] * len(df_mapa),
+                        radius=25, colorscale='Inferno', showscale=False
                     ))
                 else:
-                    st.markdown("**🛣️ Rotas de Entrega (Tracejado com Cores do SLA)**")
+                    st.markdown("**🛣️ Rotas de Entrega Reais (Cores do SLA)**")
                     
                     cores_rotas = {'NO PRAZO': '#00C49F', 'ATRASADO': '#FF4B4B', 'EM ANDAMENTO': '#FFA500', 'SEM PREVISÃO': '#808080'}
                     
                     for status, cor in cores_rotas.items():
                         df_status = df_mapa[df_mapa['PERFORMANCE_SLA'] == status]
                         if not df_status.empty:
+                            # Agrupar rotas únicas para não sobrecarregar a API
+                            rotas_unicas = df_status[['lat_o', 'lon_o', 'lat_d', 'lon_d']].drop_duplicates()
+                            
                             lats, lons = [], []
-                            for _, row in df_status.iterrows():
-                                lats.extend([row['lat_o'], row['lat_d'], None])
-                                lons.extend([row['lon_o'], row['lon_d'], None])
+                            for _, rota in rotas_unicas.iterrows():
+                                ro_lons, ro_lats, _ = obter_rota_rodoviaria(rota['lon_o'], rota['lat_o'], rota['lon_d'], rota['lat_d'])
+                                
+                                if ro_lons: # Se conseguiu as rodovias reais
+                                    lons.extend(ro_lons + [None])
+                                    lats.extend(ro_lats + [None])
+                                else: # Plano B: Linha reta se falhar a internet
+                                    lons.extend([rota['lon_o'], rota['lon_d'], None])
+                                    lats.extend([rota['lat_o'], rota['lat_d'], None])
                             
                             fig_mapa.add_trace(go.Scattermapbox(
                                 mode="lines", lon=lons, lat=lats,
-                                line=dict(width=2, color=cor),
+                                line=dict(width=3, color=cor),
                                 name=status, hoverinfo='none'
                             ))
                     
                     fig_mapa.add_trace(go.Scattermapbox(
                         mode="markers", lon=df_mapa['lon_o'], lat=df_mapa['lat_o'],
-                        marker=dict(size=8, color="#1C83E1"),
-                        text="Origem: " + df_mapa['CIDADE ORIGEM'].astype(str), hoverinfo='text'
+                        marker=dict(size=8, color="#1C83E1"), text="Origem", hoverinfo='text'
                     ))
                     fig_mapa.add_trace(go.Scattermapbox(
                         mode="markers", lon=df_mapa['lon_d'], lat=df_mapa['lat_d'],
-                        marker=dict(size=8, color="#808080"),
-                        text="Destino: " + df_mapa['CIDADE DESTINO'].astype(str), hoverinfo='text'
+                        marker=dict(size=8, color="#808080"), text="Destino", hoverinfo='text'
                     ))
                 
                 fig_mapa.update_layout(
                     margin={"r":0,"t":0,"l":0,"b":0},
-                    mapbox=dict(
-                        style="carto-darkmatter",
-                        center=dict(lon=-52.0, lat=-14.0),
-                        zoom=3.5
-                    ),
+                    mapbox=dict(style="carto-darkmatter", center=dict(lon=-52.0, lat=-14.0), zoom=3.5),
                     showlegend=False
                 )
                 st.plotly_chart(fig_mapa, use_container_width=True)
@@ -370,20 +345,17 @@ with tab2:
                 qtd_atraso = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'ATRASADO'])
                 qtd_no_prazo = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'NO PRAZO'])
                 total_validos = qtd_atraso + qtd_no_prazo
-
                 otd = (qtd_no_prazo / total_validos) * 100 if total_validos > 0 else -1
                 nota_text, cor_nota, icone, msg_nota = get_otd_info(otd)
 
                 if otd >= 0:
                     st.markdown(f"""
                     <div style='background-color: {cor_nota}15; border-left: 5px solid {cor_nota}; padding: 15px; border-radius: 8px; margin-bottom: 20px;'>
-                        <h5 style='color: {cor_nota}; margin-top: 0;'>{icone} Performance Logística (SLA): {nota_text}</h5>
+                        <h5 style='color: {cor_nota}; margin-top: 0;'>{icone} Performance SLA: {nota_text}</h5>
                         <h2 style='color: {cor_nota}; margin: 10px 0;'>OTD: {otd:.1f}%</h2>
                         <p style='margin-bottom: 0; font-size: 0.95em;'><strong>Direcionamento:</strong> {msg_nota}</p>
                     </div>
                     """, unsafe_allow_html=True)
-                else:
-                    st.info("Nenhuma entrega concluída nesta transportadora para avaliar SLA.")
 
             tem_pedido_unico = (f2_ped != "TODOS" and not df_t2.empty)
             if tem_pedido_unico:
@@ -391,19 +363,16 @@ with tab2:
                 st.markdown('<div class="bloco-info">', unsafe_allow_html=True)
                 st.markdown(f"##### Detalhes da Rota (Pedido: {f2_ped})")
                 st.write(f"🏢 **FILIAL:** {linha['FILIAL']}")
-                st.write(f"📊 **CENTRO DE CUSTO:** {linha['CENTRO DE CUSTO']}")
                 st.write(f"💰 **FRETE:** R$ {linha['VLR DO FRETE']:,.2f} | 📄 **NOTA:** R$ {linha['VALOR DA NOTA']:,.2f}")
-                st.write(f"📤 **ORIGEM:** {linha['CIDADE ORIGEM']}")
-                st.write(f"📥 **DESTINO:** {linha['CIDADE DESTINO']}")
+                st.write(f"📤 **ORIGEM:** {linha['CIDADE ORIGEM']} | 📥 **DESTINO:** {linha['CIDADE DESTINO']}")
                 
-                # Cálculo da distância
-                dist_km = calcular_distancia(linha['lat_o'], linha['lon_o'], linha['lat_d'], linha['lon_d'])
+                # CÁLCULO REAL DA RODOVIA
+                _, _, dist_km = obter_rota_rodoviaria(linha['lon_o'], linha['lat_o'], linha['lon_d'], linha['lat_d'])
                 if dist_km is not None:
-                    # Formata com separador de milhares caso seja grande (ex: 1.500 km)
-                    dist_str = f"{dist_km:,.0f} km".replace(',', '.')
-                    st.write(f"📏 **DISTÂNCIA ESTIMADA:** {dist_str} (em linha reta)")
+                    st.write(f"🛣️ **DISTÂNCIA:** {dist_km:,.0f} km (Rota Real via Rodovias)".replace(',', '.'))
                 else:
-                    st.write("📏 **DISTÂNCIA ESTIMADA:** N/A")
+                    dist_km = calcular_distancia_reta(linha['lat_o'], linha['lon_o'], linha['lat_d'], linha['lon_d'])
+                    st.write(f"📏 **DISTÂNCIA:** {dist_km:,.0f} km (Estimativa em Linha Reta)".replace(',', '.')) if dist_km else None
                 
                 d_col = linha['DATA COLETA'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA COLETA']) else 'N/A'
                 d_pre = linha['DATA DE PREVISÃO DE ENTREGA'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA DE PREVISÃO DE ENTREGA']) else 'N/A'
@@ -412,8 +381,7 @@ with tab2:
                 st.write(f"📅 **COLETA:** {d_col} | **PREVISÃO:** {d_pre} | **DATA ENTREGA:** {d_ent}")
                 
                 obs_texto = str(linha['OBSERVAÇÃO']).strip().upper()
-                if pd.isna(linha['OBSERVAÇÃO']) or obs_texto in ["NAN", "NÃO INFORMADO", "NONE", ""]:
-                    obs_texto = "NÃO INFORMADA"
+                if pd.isna(linha['OBSERVAÇÃO']) or obs_texto in ["NAN", "NÃO INFORMADO", "NONE", ""]: obs_texto = "NÃO INFORMADA"
                 st.write(f"📝 **OBSERVAÇÃO:** {obs_texto}")
                 
                 if linha['PERFORMANCE_SLA'] == 'NO PRAZO': st.markdown('<div class="badge-excelente">✅ NO PRAZO</div>', unsafe_allow_html=True)
@@ -422,9 +390,6 @@ with tab2:
                 
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
-                if f2_tra == "TODAS":
-                    st.write("📌 Filtre uma Transportadora específica para gerar a avaliação estratégica Logística (OTD).")
-                
                 st.markdown(f"##### Volume Geral de Entregas")
                 df_pie_sla = df_t2['PERFORMANCE_SLA'].value_counts().reset_index()
                 df_pie_sla.columns = ['PERFORMANCE', 'CONTAGEM']
@@ -436,8 +401,6 @@ with tab2:
         st.divider()
         st.markdown("### 📋 Detalhamento das Entregas (Filtrado)")
         st.dataframe(df_t2.drop(columns=['ID_INTERNO', 'lat_o', 'lon_o', 'lat_d', 'lon_d'], errors='ignore'), use_container_width=True, height=400)
-    else:
-        st.info("👆 Por favor, faça o upload de uma folha de cálculo para visualizar o mapa e os indicadores SLA.")
 
 # ==========================================
 # PÁGINA 3: RANKING ESTRATÉGICO
@@ -447,29 +410,20 @@ with tab3:
         st.markdown("<h4 style='color: #1C83E1;'>🏆 Quadro de Líderes (Ranking)</h4>", unsafe_allow_html=True)
         
         cr_f1, cr_f2, cr_f3, cr_f4 = st.columns(4)
-        
         f3_dt_inicio = cr_f1.date_input("Período Coleta (De)", value=None, key="p3_dt_ini")
         f3_dt_fim = cr_f2.date_input("Período Coleta (Até)", value=None, key="p3_dt_fim")
-        
-        opcoes_filial_p3 = ["TODAS"] + sorted(df['FILIAL'].astype(str).unique())
-        f3_filial = cr_f3.selectbox("Filial", opcoes_filial_p3, key="p3_filial")
-        
-        opcoes_sla_rank = ["TODOS", "EXCELENTE (>= 95%)", "BOA (85% a 94%)", "ALERTA (70% a 84%)", "CRÍTICA (< 70%)"]
-        f3_sla_rank = cr_f4.selectbox("Performance OTIF / SLA", opcoes_sla_rank, key="p3_sla")
+        f3_filial = cr_f3.selectbox("Filial", ["TODAS"] + sorted(df['FILIAL'].astype(str).unique()), key="p3_filial")
+        f3_sla_rank = cr_f4.selectbox("Performance OTIF / SLA", ["TODOS", "EXCELENTE (>= 95%)", "BOA (85% a 94%)", "ALERTA (70% a 84%)", "CRÍTICA (< 70%)"], key="p3_sla")
         
         df_t3 = df.copy()
-        
         if f3_dt_inicio: df_t3 = df_t3[df_t3['DATA COLETA'].dt.date >= f3_dt_inicio]
         if f3_dt_fim: df_t3 = df_t3[df_t3['DATA COLETA'].dt.date <= f3_dt_fim]
         if f3_filial != "TODAS": df_t3 = df_t3[df_t3['FILIAL'].astype(str) == f3_filial]
         
         cr1, cr2 = st.columns(2)
-        
         with cr1:
-            rank_vol = df_t3.groupby('TRANSPORTADORA')['Nº DE PEDIDO'].nunique().reset_index()
-            rank_vol = rank_vol.sort_values('Nº DE PEDIDO', ascending=True) 
-            fig_rank_vol = px.bar(rank_vol, y='TRANSPORTADORA', x='Nº DE PEDIDO', orientation='h', 
-                                  title="🏆 Ranking de Volume (Qtd. Pedidos)", color='Nº DE PEDIDO', color_continuous_scale='Blues')
+            rank_vol = df_t3.groupby('TRANSPORTADORA')['Nº DE PEDIDO'].nunique().reset_index().sort_values('Nº DE PEDIDO', ascending=True) 
+            fig_rank_vol = px.bar(rank_vol, y='TRANSPORTADORA', x='Nº DE PEDIDO', orientation='h', title="🏆 Ranking Volume", color='Nº DE PEDIDO', color_continuous_scale='Blues')
             fig_rank_vol.update_layout(margin=dict(l=0, r=0, t=40, b=0), coloraxis_showscale=False)
             st.plotly_chart(fig_rank_vol, use_container_width=True)
 
@@ -482,7 +436,6 @@ with tab3:
             rank_sla = df_t3.groupby('TRANSPORTADORA').apply(calc_otd_global).reset_index()
             rank_sla.columns = ['TRANSPORTADORA', 'OTD_PERCENTUAL']
             rank_sla = rank_sla[rank_sla['OTD_PERCENTUAL'] >= 0] 
-            
             rank_sla['CLASSIFICAÇÃO'] = rank_sla['OTD_PERCENTUAL'].apply(lambda x: get_otd_info(x)[0])
             
             if f3_sla_rank == "EXCELENTE (>= 95%)": rank_sla = rank_sla[rank_sla['CLASSIFICAÇÃO'] == 'EXCELENTE']
@@ -491,19 +444,10 @@ with tab3:
             elif f3_sla_rank == "CRÍTICA (< 70%)": rank_sla = rank_sla[rank_sla['CLASSIFICAÇÃO'] == 'CRÍTICA']
             
             rank_sla = rank_sla.sort_values('OTD_PERCENTUAL', ascending=True) 
+            mapa_cores = {'EXCELENTE': '#00C49F', 'BOA': '#1C83E1', 'ALERTA': '#FFA500', 'CRÍTICA': '#FF4B4B'}
             
-            mapa_cores = {
-                'EXCELENTE': '#00C49F',
-                'BOA': '#1C83E1',
-                'ALERTA': '#FFA500',
-                'CRÍTICA': '#FF4B4B'
-            }
-            
-            fig_rank_sla = px.bar(rank_sla, y='TRANSPORTADORA', x='OTD_PERCENTUAL', orientation='h', 
-                                  title="⭐ Ranking de SLA Logístico (OTD %)", color='CLASSIFICAÇÃO', 
-                                  color_discrete_map=mapa_cores)
+            fig_rank_sla = px.bar(rank_sla, y='TRANSPORTADORA', x='OTD_PERCENTUAL', orientation='h', title="⭐ Ranking de SLA Logístico (OTD %)", color='CLASSIFICAÇÃO', color_discrete_map=mapa_cores)
             fig_rank_sla.update_layout(xaxis_title="% Entregas no Prazo", margin=dict(l=0, r=0, t=40, b=0), showlegend=True)
             st.plotly_chart(fig_rank_sla, use_container_width=True)
-
     else:
-        st.info("👆 Por favor, faça o upload de uma folha de cálculo para gerar o ranking de transportadoras.")
+        st.info("👆 Por favor, faça o upload de uma folha de cálculo para gerar os rankings.")
