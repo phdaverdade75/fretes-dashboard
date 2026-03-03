@@ -2,7 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import os
 import uuid
+import math
 
 # ==========================================
 # 1. CONFIGURAÇÃO DA PÁGINA E DESIGN PREMIUM
@@ -27,8 +29,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. MOTOR DE DADOS (INICIA SEMPRE VAZIO)
+# 2. MOTOR DO BANCO DE DADOS E FUNÇÕES
 # ==========================================
+ARQUIVO_DB = "banco_fretes_final.csv"
+
 COORDENADAS_ESTADOS = {
     'AC': (-9.0238, -70.8120), 'AL': (-9.5328, -36.6698), 'AP': (1.4192, -51.7792),
     'AM': (-3.4168, -65.8561), 'BA': (-12.5797, -41.7007), 'CE': (-5.4984, -39.3206),
@@ -59,7 +63,6 @@ COLUNAS_PADRAO = [
     'DOCUMENTO', 'MEDIÇÃO/SUPRIMENTOS', 'DATA DE PREVISÃO DE ENTREGA', 'DATA ENTREGUE', 'OBSERVAÇÃO'
 ]
 
-# Inicializa o dataframe completamente vazio
 if 'banco_dados' not in st.session_state:
     st.session_state.banco_dados = pd.DataFrame(columns=COLUNAS_PADRAO)
 
@@ -109,6 +112,23 @@ def get_coords(estado_str, cidade_str):
         for nome in nomes_estados.keys():
             if nome in cid: return COORDENADAS_ESTADOS[nomes_estados[nome]]
     return (None, None)
+
+def calcular_distancia(lat1, lon1, lat2, lon2):
+    """Calcula a distância em linha reta (Fórmula de Haversine) entre dois pontos."""
+    if pd.isna(lat1) or pd.isna(lon1) or pd.isna(lat2) or pd.isna(lon2):
+        return None
+    R = 6371.0 # Raio da Terra em km
+    lat1_rad = math.radians(lat1)
+    lon1_rad = math.radians(lon1)
+    lat2_rad = math.radians(lat2)
+    lon2_rad = math.radians(lon2)
+    
+    dlon = lon2_rad - lon1_rad
+    dlat = lat2_rad - lat1_rad
+    
+    a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
 
 def get_otd_info(otd):
     if otd < 0:
@@ -242,7 +262,7 @@ with tab1:
             st.markdown("### 📋 Diário de Bordo (Filtrado)")
             st.dataframe(df_t1.drop(columns=['ID_INTERNO', 'lat_o', 'lon_o', 'lat_d', 'lon_d'], errors='ignore'), use_container_width=True, height=400)
     else:
-        st.info("👆 Por favor, faça o upload de uma planilha para iniciar a análise e visualizar os indicadores.")
+        st.info("👆 Por favor, faça o upload de uma folha de cálculo para iniciar a análise e visualizar os indicadores.")
 
 # ==========================================
 # PÁGINA 2: MAPA DE CALOR E SLA
@@ -376,6 +396,15 @@ with tab2:
                 st.write(f"📤 **ORIGEM:** {linha['CIDADE ORIGEM']}")
                 st.write(f"📥 **DESTINO:** {linha['CIDADE DESTINO']}")
                 
+                # Cálculo da distância
+                dist_km = calcular_distancia(linha['lat_o'], linha['lon_o'], linha['lat_d'], linha['lon_d'])
+                if dist_km is not None:
+                    # Formata com separador de milhares caso seja grande (ex: 1.500 km)
+                    dist_str = f"{dist_km:,.0f} km".replace(',', '.')
+                    st.write(f"📏 **DISTÂNCIA ESTIMADA:** {dist_str} (em linha reta)")
+                else:
+                    st.write("📏 **DISTÂNCIA ESTIMADA:** N/A")
+                
                 d_col = linha['DATA COLETA'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA COLETA']) else 'N/A'
                 d_pre = linha['DATA DE PREVISÃO DE ENTREGA'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA DE PREVISÃO DE ENTREGA']) else 'N/A'
                 d_ent = linha['DATA ENTREGUE'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA ENTREGUE']) else 'N/A'
@@ -408,7 +437,7 @@ with tab2:
         st.markdown("### 📋 Detalhamento das Entregas (Filtrado)")
         st.dataframe(df_t2.drop(columns=['ID_INTERNO', 'lat_o', 'lon_o', 'lat_d', 'lon_d'], errors='ignore'), use_container_width=True, height=400)
     else:
-        st.info("👆 Por favor, faça o upload de uma planilha para visualizar o mapa e os indicadores SLA.")
+        st.info("👆 Por favor, faça o upload de uma folha de cálculo para visualizar o mapa e os indicadores SLA.")
 
 # ==========================================
 # PÁGINA 3: RANKING ESTRATÉGICO
@@ -477,4 +506,4 @@ with tab3:
             st.plotly_chart(fig_rank_sla, use_container_width=True)
 
     else:
-        st.info("👆 Por favor, faça o upload de uma planilha para gerar o ranking de transportadoras.")
+        st.info("👆 Por favor, faça o upload de uma folha de cálculo para gerar o ranking de transportadoras.")
