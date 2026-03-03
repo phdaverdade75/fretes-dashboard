@@ -28,7 +28,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. MOTOR DO BANCO DE DADOS E LÓGICA DE NEGÓCIO
+# 2. MOTOR DO BANCO DE DADOS
 # ==========================================
 ARQUIVO_DB = "banco_fretes_final.csv"
 
@@ -349,6 +349,26 @@ with tab2:
                 st.warning("⚠️ O mapa não possui rotas válidas para os filtros selecionados.")
 
         with col_dados:
+            # ====== INDICADOR ESTRATÉGICO (AGORA FIXO NO TOPO) ======
+            qtd_atraso = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'ATRASADO'])
+            qtd_no_prazo = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'NO PRAZO'])
+            total_validos = qtd_atraso + qtd_no_prazo
+
+            otd = (qtd_no_prazo / total_validos) * 100 if total_validos > 0 else -1
+            nota_text, cor_nota, icone, msg_nota = get_otd_info(otd)
+
+            if otd >= 0:
+                st.markdown(f"""
+                <div style='background-color: {cor_nota}15; border-left: 5px solid {cor_nota}; padding: 15px; border-radius: 8px; margin-bottom: 20px;'>
+                    <h5 style='color: {cor_nota}; margin-top: 0;'>{icone} Performance Logística (SLA): {nota_text}</h5>
+                    <h2 style='color: {cor_nota}; margin: 10px 0;'>OTD: {otd:.1f}%</h2>
+                    <p style='margin-bottom: 0; font-size: 0.95em;'><strong>Direcionamento:</strong> {msg_nota}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.info("Nenhuma entrega concluída neste filtro para calcular o OTD.")
+
+            # ====== DETALHES DO PEDIDO OU GRÁFICO GERAL ======
             tem_pedido_unico = (f2_ped != "TODOS" and not df_t2.empty)
             if tem_pedido_unico:
                 linha = df_t2.iloc[0]
@@ -364,7 +384,14 @@ with tab2:
                 d_pre = linha['DATA DE PREVISÃO DE ENTREGA'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA DE PREVISÃO DE ENTREGA']) else 'N/A'
                 d_ent = linha['DATA ENTREGUE'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA ENTREGUE']) else 'N/A'
                 
-                st.write(f"📅 **COLETA:** {d_col} | **PREVISÃO:** {d_pre} | **ENTREGUE:** {d_ent}")
+                # NOME CORRIGIDO PARA DATA ENTREGA
+                st.write(f"📅 **COLETA:** {d_col} | **PREVISÃO:** {d_pre} | **DATA ENTREGA:** {d_ent}")
+                
+                # OBSERVAÇÃO BLINDADA (SEMPRE APARECE)
+                obs_texto = str(linha['OBSERVAÇÃO']).strip().upper()
+                if pd.isna(linha['OBSERVAÇÃO']) or obs_texto in ["NAN", "NÃO INFORMADO", "NONE", ""]:
+                    obs_texto = "NÃO INFORMADA"
+                st.write(f"📝 **OBSERVAÇÃO:** {obs_texto}")
                 
                 if linha['PERFORMANCE_SLA'] == 'NO PRAZO': st.markdown('<div class="badge-excelente">✅ NO PRAZO</div>', unsafe_allow_html=True)
                 elif linha['PERFORMANCE_SLA'] == 'ATRASADO': st.markdown('<div class="badge-ruim">🚨 ATRASADO</div>', unsafe_allow_html=True)
@@ -372,23 +399,6 @@ with tab2:
                 
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
-                # ====== INDICADOR ESTRATÉGICO ======
-                qtd_atraso = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'ATRASADO'])
-                qtd_no_prazo = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'NO PRAZO'])
-                total_validos = qtd_atraso + qtd_no_prazo
-
-                otd = (qtd_no_prazo / total_validos) * 100 if total_validos > 0 else -1
-                nota_text, cor_nota, icone, msg_nota = get_otd_info(otd)
-
-                if otd >= 0:
-                    st.markdown(f"""
-                    <div style='background-color: {cor_nota}15; border-left: 5px solid {cor_nota}; padding: 15px; border-radius: 8px; margin-bottom: 20px;'>
-                        <h5 style='color: {cor_nota}; margin-top: 0;'>{icone} Performance Logística (SLA): {nota_text}</h5>
-                        <h2 style='color: {cor_nota}; margin: 10px 0;'>OTD: {otd:.1f}%</h2>
-                        <p style='margin-bottom: 0; font-size: 0.95em;'><strong>Direcionamento:</strong> {msg_nota}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-
                 st.markdown(f"##### Volume Geral de Entregas")
                 df_pie_sla = df_t2['PERFORMANCE_SLA'].value_counts().reset_index()
                 df_pie_sla.columns = ['PERFORMANCE', 'CONTAGEM']
@@ -412,7 +422,6 @@ with tab3:
         opcoes_filial_p3 = ["TODAS"] + sorted(df['FILIAL'].astype(str).unique())
         f3_filial = cr_f3.selectbox("Filial", opcoes_filial_p3, key="p3_filial")
         
-        # Filtro com as 4 categorias oficiais da Régua
         opcoes_sla_rank = ["TODOS", "EXCELENTE (>= 95%)", "BOA (85% a 94%)", "ALERTA (70% a 84%)", "CRÍTICA (< 70%)"]
         f3_sla_rank = cr_f4.selectbox("Performance OTIF / SLA", opcoes_sla_rank, key="p3_sla")
         
@@ -435,14 +444,13 @@ with tab3:
         with cr2:
             def calc_otd_global(grupo):
                 validos = grupo[grupo['PERFORMANCE_SLA'].isin(['NO PRAZO', 'ATRASADO'])]
-                if len(validos) == 0: return -1.0 # Ignora as que só tem Em Andamento
+                if len(validos) == 0: return -1.0 
                 return (len(validos[validos['PERFORMANCE_SLA'] == 'NO PRAZO']) / len(validos)) * 100
                 
             rank_sla = df_t3.groupby('TRANSPORTADORA').apply(calc_otd_global).reset_index()
             rank_sla.columns = ['TRANSPORTADORA', 'OTD_PERCENTUAL']
-            rank_sla = rank_sla[rank_sla['OTD_PERCENTUAL'] >= 0] # Remove N/A
+            rank_sla = rank_sla[rank_sla['OTD_PERCENTUAL'] >= 0] 
             
-            # Aplica a Régua para colorir e filtrar
             rank_sla['CLASSIFICAÇÃO'] = rank_sla['OTD_PERCENTUAL'].apply(lambda x: get_otd_info(x)[0])
             
             if f3_sla_rank == "EXCELENTE (>= 95%)": rank_sla = rank_sla[rank_sla['CLASSIFICAÇÃO'] == 'EXCELENTE']
