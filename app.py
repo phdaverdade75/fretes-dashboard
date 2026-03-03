@@ -248,14 +248,14 @@ with tab1:
             
             st.write("")
             
-            # === DE VOLTA COM DESTAQUE: GRÁFICO DE PIZZA (MEDIÇÃO X SUPRIMENTOS) ===
+            # --- DE VOLTA COM DESTAQUE: GRÁFICO DE PIZZA (MEDIÇÃO X SUPRIMENTOS) ---
             df_med_gasto = df_t1.groupby('MEDIÇÃO/SUPRIMENTOS')['Nº DE PEDIDO'].nunique().reset_index()
             fig_med_sup = px.pie(df_med_gasto, values='Nº DE PEDIDO', names='MEDIÇÃO/SUPRIMENTOS', hole=0.4, 
                                  title="Volume: Suprimentos x Medição")
             fig_med_sup.update_layout(margin=dict(l=0, r=0, t=40, b=0), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
             st.plotly_chart(fig_med_sup, use_container_width=True)
         
-        # === AQUI FORA DA COLUNA PARA OCUPAR A TELA TODA ===
+        # --- AQUI FORA DA COLUNA PARA OCUPAR A TELA TODA (Tabela e Detalhes) ---
         st.divider()
         
         # Se um pedido específico for selecionado, mostra o detalhamento visual
@@ -283,38 +283,51 @@ with tab1:
             st.markdown('</div>', unsafe_allow_html=True)
             st.write("")
 
-        # A famosa Linha de Dados / Tabela (Ocupando a largura total)
+        # A famosa Linha de Dados / Tabela Ocupando a largura total na base
         st.markdown("### 📋 Diário de Bordo (Tabela de Dados Filtrada)")
         st.dataframe(df_t1.drop(columns=['ID_INTERNO', 'lat_o', 'lon_o', 'lat_d', 'lon_d'], errors='ignore'), use_container_width=True, height=400)
     else:
         st.info("👆 Por favor, faça o upload de uma folha de cálculo para iniciar.")
 
 # ==========================================
-# PÁGINA 2: MAPA DE CALOR E SLA
+# PÁGINA 2: MAPA DE CALOR E SLA COM FILTROS DINÂMICOS (CASCATA)
 # ==========================================
 with tab2:
     if not df.empty:
         st.markdown("<h4 style='color: #1C83E1;'>🧭 Filtros de Rastreamento Total</h4>", unsafe_allow_html=True)
         
+        # Criação do DataFrame base para a cascata de filtros
+        df_t2_base = df.copy()
+
         cf1, cf2, cf3 = st.columns(3)
         f2_dt_inicio = cf1.date_input("Período Coleta (De)", value=None, key="p2_dt_ini")
         f2_dt_fim = cf2.date_input("Período Coleta (Até)", value=None, key="p2_dt_fim")
         f2_sla = cf3.selectbox("🚥 Status SLA", ["TODOS", "NO PRAZO", "ATRASADO", "EM ANDAMENTO"], key="p2_sla") 
 
-        c1, c2, c3, c4 = st.columns(4)
-        f2_ped = c1.selectbox("📌 Nº de Pedido", ["TODOS"] + sorted(df['Nº DE PEDIDO'].unique()), key="p2_ped")
-        f2_tra = c2.selectbox("🏢 Transportadora", ["TODAS"] + sorted(df['TRANSPORTADORA'].unique()), key="p2_tra")
-        f2_ccusto = c3.selectbox("📊 Centro de Custo", ["TODOS"] + sorted(df['CENTRO DE CUSTO'].astype(str).unique()), key="p2_cc")
-        f2_filial = c4.selectbox("🏢 Filial", ["TODAS"] + sorted(df['FILIAL'].astype(str).unique()), key="p2_fil")
+        # Aplica o 1º Nível de Filtro (Data e SLA) para restringir as opções seguintes
+        if f2_dt_inicio: df_t2_base = df_t2_base[df_t2_base['DATA COLETA'].dt.date >= f2_dt_inicio]
+        if f2_dt_fim: df_t2_base = df_t2_base[df_t2_base['DATA COLETA'].dt.date <= f2_dt_fim]
+        if f2_sla != "TODOS": df_t2_base = df_t2_base[df_t2_base['PERFORMANCE_SLA'] == f2_sla]
 
-        df_t2 = df.copy()
-        if f2_dt_inicio: df_t2 = df_t2[df_t2['DATA COLETA'].dt.date >= f2_dt_inicio]
-        if f2_dt_fim: df_t2 = df_t2[df_t2['DATA COLETA'].dt.date <= f2_dt_fim]
-        if f2_sla != "TODOS": df_t2 = df_t2[df_t2['PERFORMANCE_SLA'] == f2_sla]
-        if f2_ped != "TODOS": df_t2 = df_t2[df_t2['Nº DE PEDIDO'] == f2_ped]
-        if f2_tra != "TODAS": df_t2 = df_t2[df_t2['TRANSPORTADORA'] == f2_tra]
-        if f2_ccusto != "TODOS": df_t2 = df_t2[df_t2['CENTRO DE CUSTO'].astype(str) == f2_ccusto]
-        if f2_filial != "TODAS": df_t2 = df_t2[df_t2['FILIAL'].astype(str) == f2_filial]
+        c1, c2, c3, c4 = st.columns(4)
+        
+        # Aplica 2º Nível: Opções de Pedido só mostram o que sobrou após filtrar SLA e Data
+        f2_ped = c1.selectbox("📌 Nº de Pedido", ["TODOS"] + sorted(df_t2_base['Nº DE PEDIDO'].unique()), key="p2_ped")
+        if f2_ped != "TODOS": df_t2_base = df_t2_base[df_t2_base['Nº DE PEDIDO'] == f2_ped]
+        
+        # Aplica 3º Nível: Transportadora só mostra o que sobrou após filtrar Pedido
+        f2_tra = c2.selectbox("🏢 Transportadora", ["TODAS"] + sorted(df_t2_base['TRANSPORTADORA'].unique()), key="p2_tra")
+        if f2_tra != "TODAS": df_t2_base = df_t2_base[df_t2_base['TRANSPORTADORA'] == f2_tra]
+        
+        # Aplica 4º Nível: CC
+        f2_ccusto = c3.selectbox("📊 Centro de Custo", ["TODOS"] + sorted(df_t2_base['CENTRO DE CUSTO'].astype(str).unique()), key="p2_cc")
+        if f2_ccusto != "TODOS": df_t2_base = df_t2_base[df_t2_base['CENTRO DE CUSTO'].astype(str) == f2_ccusto]
+        
+        # Aplica 5º Nível: Filial
+        f2_filial = c4.selectbox("🏢 Filial", ["TODAS"] + sorted(df_t2_base['FILIAL'].astype(str).unique()), key="p2_fil")
+        if f2_filial != "TODAS": df_t2_base = df_t2_base[df_t2_base['FILIAL'].astype(str) == f2_filial]
+
+        df_t2 = df_t2_base.copy() # DataFrame final com todos os filtros aplicados
 
         st.write("")
         col_mapa, col_dados = st.columns([6, 4], gap="large")
