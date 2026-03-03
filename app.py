@@ -116,7 +116,6 @@ def get_coords(estado_str, cidade_str):
 
 @st.cache_data(show_spinner=False)
 def obter_rota_rodoviaria(lon1, lat1, lon2, lat2):
-    """Busca o caminho real pelas rodovias usando a API gratuita do OSRM."""
     if pd.isna(lat1) or pd.isna(lon1) or pd.isna(lat2) or pd.isna(lon2):
         return None, None, None
     try:
@@ -135,7 +134,6 @@ def obter_rota_rodoviaria(lon1, lat1, lon2, lat2):
     return None, None, None
 
 def calcular_distancia_reta(lat1, lon1, lat2, lon2):
-    """Plano B: Calcula linha reta se a API rodoviária falhar."""
     if pd.isna(lat1) or pd.isna(lon1) or pd.isna(lat2) or pd.isna(lon2): return None
     R = 6371.0 
     lat1_rad, lon1_rad = math.radians(lat1), math.radians(lon1)
@@ -157,7 +155,7 @@ def get_otd_info(otd):
 # 3. CABEÇALHO E UPLOAD
 # ==========================================
 st.title("🚚 FRETES ANALYTICS V1.0")
-st.caption("Painel Executivo de Gestão Logística | Indicadores elaborados por Pedro Anjos")
+st.caption("Painel Executivo de Gestão Logística | Desenvolvido estrategicamente por Pedro Anjos")
 
 with st.expander("📥 Importar Dados (Atualizar Base)", expanded=True):
     col_up, col_btn = st.columns([8, 2])
@@ -250,17 +248,44 @@ with tab1:
             
             st.write("")
             
-            # --- DE VOLTA: GRÁFICO DE PIZZA (MEDIÇÃO X SUPRIMENTOS) ---
+            # === DE VOLTA COM DESTAQUE: GRÁFICO DE PIZZA (MEDIÇÃO X SUPRIMENTOS) ===
             df_med_gasto = df_t1.groupby('MEDIÇÃO/SUPRIMENTOS')['Nº DE PEDIDO'].nunique().reset_index()
             fig_med_sup = px.pie(df_med_gasto, values='Nº DE PEDIDO', names='MEDIÇÃO/SUPRIMENTOS', hole=0.4, 
                                  title="Volume: Suprimentos x Medição")
             fig_med_sup.update_layout(margin=dict(l=0, r=0, t=40, b=0), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
             st.plotly_chart(fig_med_sup, use_container_width=True)
+        
+        # === AQUI FORA DA COLUNA PARA OCUPAR A TELA TODA ===
+        st.divider()
+        
+        # Se um pedido específico for selecionado, mostra o detalhamento visual
+        if f1_ped != "TODOS" and not df_t1.empty:
+            linha = df_t1.iloc[0]
+            st.markdown(f"### 📋 Detalhes do Pedido: {f1_ped}")
+            st.markdown('<div class="bloco-info">', unsafe_allow_html=True)
+            st.write(f"🏢 **FILIAL:** {linha['FILIAL']} | 📊 **CENTRO DE CUSTO:** {linha['CENTRO DE CUSTO']}")
+            st.write(f"💰 **FRETE:** R$ {linha['VLR DO FRETE']:,.2f} | 📄 **NOTA:** R$ {linha['VALOR DA NOTA']:,.2f}")
+            st.write(f"📤 **ORIGEM:** {linha['CIDADE ORIGEM']} ➡️ 📥 **DESTINO:** {linha['CIDADE DESTINO']}")
             
-            # --- DE VOLTA: TABELA DIÁRIO DE BORDO (FILTRADO) ---
-            st.divider()
-            st.markdown("### 📋 Diário de Bordo (Filtrado)")
-            st.dataframe(df_t1.drop(columns=['ID_INTERNO', 'lat_o', 'lon_o', 'lat_d', 'lon_d'], errors='ignore'), use_container_width=True, height=400)
+            d_col = linha['DATA COLETA'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA COLETA']) else 'N/A'
+            d_pre = linha['DATA DE PREVISÃO DE ENTREGA'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA DE PREVISÃO DE ENTREGA']) else 'N/A'
+            d_ent = linha['DATA ENTREGUE'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA ENTREGUE']) else 'N/A'
+            
+            st.write(f"📅 **COLETA:** {d_col} | **PREVISÃO:** {d_pre} | **DATA ENTREGA:** {d_ent}")
+            
+            obs_texto = str(linha['OBSERVAÇÃO']).strip().upper()
+            if pd.isna(linha['OBSERVAÇÃO']) or obs_texto in ["NAN", "NÃO INFORMADO", "NONE", ""]: obs_texto = "NÃO INFORMADA"
+            st.write(f"📝 **OBSERVAÇÃO:** {obs_texto}")
+            
+            if linha['PERFORMANCE_SLA'] == 'NO PRAZO': st.markdown('<div class="badge-excelente">✅ NO PRAZO</div>', unsafe_allow_html=True)
+            elif linha['PERFORMANCE_SLA'] == 'ATRASADO': st.markdown('<div class="badge-ruim">🚨 ATRASADO</div>', unsafe_allow_html=True)
+            else: st.markdown('<div class="badge-andamento">⏳ EM ANDAMENTO</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.write("")
+
+        # A famosa Linha de Dados / Tabela (Ocupando a largura total)
+        st.markdown("### 📋 Diário de Bordo (Tabela de Dados Filtrada)")
+        st.dataframe(df_t1.drop(columns=['ID_INTERNO', 'lat_o', 'lon_o', 'lat_d', 'lon_d'], errors='ignore'), use_container_width=True, height=400)
     else:
         st.info("👆 Por favor, faça o upload de uma folha de cálculo para iniciar.")
 
