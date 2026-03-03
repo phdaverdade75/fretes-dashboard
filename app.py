@@ -109,15 +109,17 @@ def avaliar_prazo(row):
     if row['DATA ENTREGUE'] <= row['DATA DE PREVISÃO DE ENTREGA']: return 'NO PRAZO'
     return 'ATRASADO'
 
-# Nova função ultra-robusta para encontrar coordenadas mesmo se a planilha estiver desorganizada
 def get_coords(estado_str, cidade_str):
-    # Tenta achar pelo Estado primeiro
     if pd.notna(estado_str) and str(estado_str).strip().upper() != 'NÃO INFORMADO':
-        est = str(estado_str).strip().upper()
-        if est in COORDENADAS_ESTADOS: return COORDENADAS_ESTADOS[est]
-        if est in nomes_estados: return COORDENADAS_ESTADOS[nomes_estados[est]]
+        est_raw = str(estado_str).strip().upper()
+        
+        # O segredo está aqui: Extrai apenas a sigla (ex: "AM" do texto "AM - Amazonas")
+        uf = est_raw.split('-')[0].strip()
+        
+        if uf in COORDENADAS_ESTADOS: return COORDENADAS_ESTADOS[uf]
+        if est_raw in nomes_estados: return COORDENADAS_ESTADOS[nomes_estados[est_raw]]
     
-    # Se não tem estado, "vasculha" a Cidade pra tentar achar a sigla (Ex: "Campinas - SP")
+    # Se falhar, vasculha a cidade
     if pd.notna(cidade_str) and str(cidade_str).strip().upper() != 'NÃO INFORMADO':
         cid = str(cidade_str).upper().replace("-", " ").replace("/", " ")
         partes = cid.split()
@@ -170,7 +172,6 @@ df = st.session_state.banco_dados
 if not df.empty:
     df['PERFORMANCE_SLA'] = df.apply(avaliar_prazo, axis=1)
     
-    # Mapeamento Instantâneo com Blindagem de Falhas
     df['lat_o'] = df.apply(lambda row: get_coords(row['ESTADO ORIGEM'], row['CIDADE ORIGEM'])[0], axis=1)
     df['lon_o'] = df.apply(lambda row: get_coords(row['ESTADO ORIGEM'], row['CIDADE ORIGEM'])[1], axis=1)
     df['lat_d'] = df.apply(lambda row: get_coords(row['ESTADO DESTINO'], row['CIDADE DESTINO'])[0], axis=1)
@@ -196,19 +197,19 @@ with tab1:
             f1_dt_fim = st.date_input("Data Final", value=None, key="p1_dt_fim")
             
             st.markdown("**Filtros Operacionais**")
-            opcoes_pedidos = ["TODOS"] + sorted(df['Nº DE PEDIDO'].unique())
-            f1_ped = st.selectbox("Nº Pedido Específico", opcoes_pedidos, key="p1_ped")
+            opcoes_pedidos_p1 = ["TODOS"] + sorted(df['Nº DE PEDIDO'].unique())
+            f1_ped = st.selectbox("Nº Pedido Específico", opcoes_pedidos_p1, key="p1_ped")
             
-            opcoes_filial = ["TODAS"] + sorted(df['FILIAL'].unique())
-            f1_filial = st.selectbox("Filial", opcoes_filial, key="p1_fil")
+            opcoes_filial_p1 = ["TODAS"] + sorted(df['FILIAL'].unique())
+            f1_filial = st.selectbox("Filial", opcoes_filial_p1, key="p1_fil")
             
-            opcoes_transp = ["TODAS"] + sorted(df['TRANSPORTADORA'].unique())
-            f1_transp = st.selectbox("Transportadora", opcoes_transp, key="p1_tra")
+            opcoes_transp_p1 = ["TODAS"] + sorted(df['TRANSPORTADORA'].unique())
+            f1_transp = st.selectbox("Transportadora", opcoes_transp_p1, key="p1_tra")
             
-            opcoes_vei = ["TODOS"] + sorted(df['VEÍCULO'].unique())
-            f1_vei = st.selectbox("Veículo", opcoes_vei, key="p1_vei")
+            opcoes_vei_p1 = ["TODOS"] + sorted(df['VEÍCULO'].unique())
+            f1_vei = st.selectbox("Veículo", opcoes_vei_p1, key="p1_vei")
 
-        # APLICAÇÃO DOS FILTROS DINÂMICOS NA BASE
+        # APLICAÇÃO DOS FILTROS DINÂMICOS
         df_t1 = df.copy()
         if f1_dt_inicio: df_t1 = df_t1[df_t1['DATA COLETA'].dt.date >= f1_dt_inicio]
         if f1_dt_fim: df_t1 = df_t1[df_t1['DATA COLETA'].dt.date <= f1_dt_fim]
@@ -218,11 +219,11 @@ with tab1:
         if f1_vei != "TODOS": df_t1 = df_t1[df_t1['VEÍCULO'] == f1_vei]
 
         with col_conteudo:
-            st.markdown("#### Resumo da Operação (Baseado nos filtros)")
-            # Retirado o Card de Indicador! Apenas 2 cartões focados.
-            v1, v2 = st.columns(2)
+            st.markdown("#### Resumo da Operação")
+            v1, v2, v3 = st.columns(3)
             v1.metric("💰 Faturamento Total Fretes", f"R$ {df_t1['VLR DO FRETE'].sum():,.2f}")
             v2.metric("📦 Total Fretes (Qtd. Pedidos)", df_t1['Nº DE PEDIDO'].nunique())
+            v3.metric("👨‍💼 Indicador Responsável", "Pedro Anjos")
             
             st.divider()
             
@@ -266,16 +267,22 @@ with tab2:
         f2_dt_inicio = cf1.date_input("Período Coleta (De)", value=None, key="p2_dt_ini")
         f2_dt_fim = cf2.date_input("Período Coleta (Até)", value=None, key="p2_dt_fim")
         
-        opcoes_sla = ["TODOS", "NO PRAZO", "ATRASADO", "EM ANDAMENTO"]
-        f2_sla = cf3.selectbox("🚥 Status SLA", opcoes_sla, key="p2_sla") 
+        opcoes_sla_p2 = ["TODOS", "NO PRAZO", "ATRASADO", "EM ANDAMENTO"]
+        f2_sla = cf3.selectbox("🚥 Status SLA", opcoes_sla_p2, key="p2_sla") 
 
         c1, c2, c3, c4 = st.columns(4)
-        f2_ped = c1.selectbox("📌 Nº de Pedido", opcoes_pedidos, key="p2_ped")
-        f2_tra = c2.selectbox("🏢 Transportadora", opcoes_transp, key="p2_tra")
         
-        opcoes_ccusto = ["TODOS"] + sorted(df['CENTRO DE CUSTO'].astype(str).unique())
-        f2_ccusto = c3.selectbox("📊 Centro de Custo", opcoes_ccusto, key="p2_cc")
-        f2_filial = c4.selectbox("🏢 Filial", opcoes_filial, key="p2_fil")
+        opcoes_pedidos_p2 = ["TODOS"] + sorted(df['Nº DE PEDIDO'].unique())
+        f2_ped = c1.selectbox("📌 Nº de Pedido", opcoes_pedidos_p2, key="p2_ped")
+        
+        opcoes_transp_p2 = ["TODAS"] + sorted(df['TRANSPORTADORA'].unique())
+        f2_tra = c2.selectbox("🏢 Transportadora", opcoes_transp_p2, key="p2_tra")
+        
+        opcoes_ccusto_p2 = ["TODOS"] + sorted(df['CENTRO DE CUSTO'].astype(str).unique())
+        f2_ccusto = c3.selectbox("📊 Centro de Custo", opcoes_ccusto_p2, key="p2_cc")
+        
+        opcoes_filial_p2 = ["TODAS"] + sorted(df['FILIAL'].astype(str).unique())
+        f2_filial = c4.selectbox("🏢 Filial", opcoes_filial_p2, key="p2_fil")
 
         # APLICAÇÃO DOS FILTROS
         df_t2 = df.copy()
@@ -285,7 +292,7 @@ with tab2:
         if f2_ped != "TODOS": df_t2 = df_t2[df_t2['Nº DE PEDIDO'] == f2_ped]
         if f2_tra != "TODAS": df_t2 = df_t2[df_t2['TRANSPORTADORA'] == f2_tra]
         if f2_ccusto != "TODOS": df_t2 = df_t2[df_t2['CENTRO DE CUSTO'].astype(str) == f2_ccusto]
-        if f2_filial != "TODAS": df_t2 = df_t2[df_t2['FILIAL'] == f2_filial]
+        if f2_filial != "TODAS": df_t2 = df_t2[df_t2['FILIAL'].astype(str) == f2_filial]
 
         st.write("")
         col_mapa, col_dados = st.columns([6, 4], gap="large")
@@ -293,13 +300,11 @@ with tab2:
         with col_mapa:
             st.markdown("**Rotas de Frete (Tracejado)**")
             
-            # Limpa apenas quem não tem coordenada identificada
             df_mapa = df_t2.dropna(subset=['lat_o', 'lon_o', 'lat_d', 'lon_d']).copy()
             
             if not df_mapa.empty:
                 fig_mapa = go.Figure()
                 
-                # Desenhando as linhas ligando Origem a Destino
                 lats, lons = [], []
                 for _, row in df_mapa.iterrows():
                     lats.extend([row['lat_o'], row['lat_d'], None])
@@ -310,18 +315,16 @@ with tab2:
                     line=dict(width=2, color="#1C83E1"), hoverinfo='none'
                 ))
                 
-                # Desenhando os Pontos de Origem (Azul)
                 fig_mapa.add_trace(go.Scattermapbox(
                     mode="markers", lon=df_mapa['lon_o'], lat=df_mapa['lat_o'],
                     marker=dict(size=8, color="#1C83E1"),
-                    text="Origem: " + df_mapa['CIDADE ORIGEM'], hoverinfo='text'
+                    text="Origem: " + df_mapa['CIDADE ORIGEM'].astype(str), hoverinfo='text'
                 ))
                 
-                # Desenhando os Pontos de Destino (Verde)
                 fig_mapa.add_trace(go.Scattermapbox(
                     mode="markers", lon=df_mapa['lon_d'], lat=df_mapa['lat_d'],
                     marker=dict(size=8, color="#00C49F"),
-                    text="Destino: " + df_mapa['CIDADE DESTINO'], hoverinfo='text'
+                    text="Destino: " + df_mapa['CIDADE DESTINO'].astype(str), hoverinfo='text'
                 ))
                 
                 fig_mapa.update_layout(
@@ -335,7 +338,7 @@ with tab2:
                 )
                 st.plotly_chart(fig_mapa, use_container_width=True)
             else:
-                st.warning("⚠️ O mapa não pode ser gerado porque as informações de Cidade/Estado estão em branco ou em formato não reconhecido na sua planilha.")
+                st.warning("⚠️ O mapa não possui rotas válidas para os filtros selecionados ou as informações de Estado na planilha estão em branco.")
 
         with col_dados:
             tem_pedido_unico = (f2_ped != "TODOS" and not df_t2.empty)
@@ -400,12 +403,13 @@ with tab3:
     if not df.empty:
         st.markdown("<h4 style='color: #1C83E1;'>🏆 Quadro de Líderes (Ranking)</h4>", unsafe_allow_html=True)
         
-        # FILTROS DA PÁGINA 3
         cr_f1, cr_f2, cr_f3, cr_f4 = st.columns(4)
         
         f3_dt_inicio = cr_f1.date_input("Período Coleta (De)", value=None, key="p3_dt_ini")
         f3_dt_fim = cr_f2.date_input("Período Coleta (Até)", value=None, key="p3_dt_fim")
-        f3_filial = cr_f3.selectbox("Filial", opcoes_filial, key="p3_filial")
+        
+        opcoes_filial_p3 = ["TODAS"] + sorted(df['FILIAL'].astype(str).unique())
+        f3_filial = cr_f3.selectbox("Filial", opcoes_filial_p3, key="p3_filial")
         
         opcoes_sla_rank = ["TODOS", "NO PRAZO", "ATRASADO"]
         f3_sla = cr_f4.selectbox("Filtro de SLA (Ranking)", opcoes_sla_rank, key="p3_sla")
@@ -414,7 +418,7 @@ with tab3:
         
         if f3_dt_inicio: df_t3 = df_t3[df_t3['DATA COLETA'].dt.date >= f3_dt_inicio]
         if f3_dt_fim: df_t3 = df_t3[df_t3['DATA COLETA'].dt.date <= f3_dt_fim]
-        if f3_filial != "TODAS": df_t3 = df_t3[df_t3['FILIAL'] == f3_filial]
+        if f3_filial != "TODAS": df_t3 = df_t3[df_t3['FILIAL'].astype(str) == f3_filial]
         if f3_sla != "TODOS": df_t3 = df_t3[df_t3['PERFORMANCE_SLA'] == f3_sla]
         
         cr1, cr2 = st.columns(2)
