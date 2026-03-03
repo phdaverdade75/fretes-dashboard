@@ -28,7 +28,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. MOTOR DO BANCO DE DADOS (MAPA BLINDADO)
+# 2. MOTOR DO BANCO DE DADOS E COORDENADAS
 # ==========================================
 ARQUIVO_DB = "banco_fretes_final.csv"
 
@@ -112,14 +112,10 @@ def avaliar_prazo(row):
 def get_coords(estado_str, cidade_str):
     if pd.notna(estado_str) and str(estado_str).strip().upper() != 'NÃO INFORMADO':
         est_raw = str(estado_str).strip().upper()
-        
-        # O segredo está aqui: Extrai apenas a sigla (ex: "AM" do texto "AM - Amazonas")
         uf = est_raw.split('-')[0].strip()
-        
         if uf in COORDENADAS_ESTADOS: return COORDENADAS_ESTADOS[uf]
         if est_raw in nomes_estados: return COORDENADAS_ESTADOS[nomes_estados[est_raw]]
     
-    # Se falhar, vasculha a cidade
     if pd.notna(cidade_str) and str(cidade_str).strip().upper() != 'NÃO INFORMADO':
         cid = str(cidade_str).upper().replace("-", " ").replace("/", " ")
         partes = cid.split()
@@ -220,10 +216,10 @@ with tab1:
 
         with col_conteudo:
             st.markdown("#### Resumo da Operação")
-            v1, v2, v3 = st.columns(3)
+            # Apenas os 2 cards solicitados
+            v1, v2 = st.columns(2)
             v1.metric("💰 Faturamento Total Fretes", f"R$ {df_t1['VLR DO FRETE'].sum():,.2f}")
             v2.metric("📦 Total Fretes (Qtd. Pedidos)", df_t1['Nº DE PEDIDO'].nunique())
-            v3.metric("👨‍💼 Indicador Responsável", "Pedro Anjos")
             
             st.divider()
             
