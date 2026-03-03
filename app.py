@@ -28,11 +28,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. MOTOR DO BANCO DE DADOS (ULTRA-RÁPIDO)
+# 2. MOTOR DO BANCO DE DADOS (MAPA BLINDADO)
 # ==========================================
 ARQUIVO_DB = "banco_fretes_final.csv"
 
-# Coordenadas estáticas embutidas para carregamento em 0.001 segundos (Sem satélite externo)
 COORDENADAS_ESTADOS = {
     'AC': (-9.0238, -70.8120), 'AL': (-9.5328, -36.6698), 'AP': (1.4192, -51.7792),
     'AM': (-3.4168, -65.8561), 'BA': (-12.5797, -41.7007), 'CE': (-5.4984, -39.3206),
@@ -45,12 +44,11 @@ COORDENADAS_ESTADOS = {
     'SP': (-23.5505, -46.6333), 'SE': (-10.5741, -37.3857), 'TO': (-10.1843, -48.3336)
 }
 
-# Tratamento para nomes completos de estados também
 nomes_estados = {
     'SAO PAULO': 'SP', 'MINAS GERAIS': 'MG', 'RIO DE JANEIRO': 'RJ', 'BAHIA': 'BA',
     'PARANA': 'PR', 'RIO GRANDE DO SUL': 'RS', 'SANTA CATARINA': 'SC', 'GOIAS': 'GO',
     'MATO GROSSO': 'MT', 'MATO GROSSO DO SUL': 'MS', 'PERNAMBUCO': 'PE', 'CEARA': 'CE',
-    'PARA': 'PA', 'MARANHAO': 'MA', 'ESPIRITO SANTO': 'ES', 'PARAÍBA': 'PB',
+    'PARA': 'PA', 'MARANHAO': 'MA', 'ESPIRITO SANTO': 'ES', 'PARAIBA': 'PB',
     'AMAZONAS': 'AM', 'RIO GRANDE DO NORTE': 'RN', 'ALAGOAS': 'AL', 'PIAUI': 'PI',
     'TOCANTINS': 'TO', 'DISTRITO FEDERAL': 'DF', 'SERGIPE': 'SE', 'RONDONIA': 'RO',
     'RORAIMA': 'RR', 'AMAPA': 'AP', 'ACRE': 'AC'
@@ -111,11 +109,23 @@ def avaliar_prazo(row):
     if row['DATA ENTREGUE'] <= row['DATA DE PREVISÃO DE ENTREGA']: return 'NO PRAZO'
     return 'ATRASADO'
 
-def get_coords(estado_str):
-    if pd.isna(estado_str): return (None, None)
-    est = str(estado_str).strip().upper()
-    if est in COORDENADAS_ESTADOS: return COORDENADAS_ESTADOS[est]
-    if est in nomes_estados: return COORDENADAS_ESTADOS[nomes_estados[est]]
+# Nova função ultra-robusta para encontrar coordenadas mesmo se a planilha estiver desorganizada
+def get_coords(estado_str, cidade_str):
+    # Tenta achar pelo Estado primeiro
+    if pd.notna(estado_str) and str(estado_str).strip().upper() != 'NÃO INFORMADO':
+        est = str(estado_str).strip().upper()
+        if est in COORDENADAS_ESTADOS: return COORDENADAS_ESTADOS[est]
+        if est in nomes_estados: return COORDENADAS_ESTADOS[nomes_estados[est]]
+    
+    # Se não tem estado, "vasculha" a Cidade pra tentar achar a sigla (Ex: "Campinas - SP")
+    if pd.notna(cidade_str) and str(cidade_str).strip().upper() != 'NÃO INFORMADO':
+        cid = str(cidade_str).upper().replace("-", " ").replace("/", " ")
+        partes = cid.split()
+        for parte in partes:
+            if parte in COORDENADAS_ESTADOS: return COORDENADAS_ESTADOS[parte]
+        for nome in nomes_estados.keys():
+            if nome in cid: return COORDENADAS_ESTADOS[nomes_estados[nome]]
+            
     return (None, None)
 
 # ==========================================
@@ -159,14 +169,12 @@ df = st.session_state.banco_dados
 
 if not df.empty:
     df['PERFORMANCE_SLA'] = df.apply(avaliar_prazo, axis=1)
-    df['CIDADE/UF_ORIGEM'] = df['CIDADE ORIGEM'] + " - " + df['ESTADO ORIGEM']
-    df['CIDADE/UF_DESTINO'] = df['CIDADE DESTINO'] + " - " + df['ESTADO DESTINO']
     
-    # Mapeamento Instantâneo sem internet
-    df['lat_o'] = df['ESTADO ORIGEM'].apply(lambda x: get_coords(x)[0])
-    df['lon_o'] = df['ESTADO ORIGEM'].apply(lambda x: get_coords(x)[1])
-    df['lat_d'] = df['ESTADO DESTINO'].apply(lambda x: get_coords(x)[0])
-    df['lon_d'] = df['ESTADO DESTINO'].apply(lambda x: get_coords(x)[1])
+    # Mapeamento Instantâneo com Blindagem de Falhas
+    df['lat_o'] = df.apply(lambda row: get_coords(row['ESTADO ORIGEM'], row['CIDADE ORIGEM'])[0], axis=1)
+    df['lon_o'] = df.apply(lambda row: get_coords(row['ESTADO ORIGEM'], row['CIDADE ORIGEM'])[1], axis=1)
+    df['lat_d'] = df.apply(lambda row: get_coords(row['ESTADO DESTINO'], row['CIDADE DESTINO'])[0], axis=1)
+    df['lon_d'] = df.apply(lambda row: get_coords(row['ESTADO DESTINO'], row['CIDADE DESTINO'])[1], axis=1)
 
 # ==========================================
 # NAVEGAÇÃO ENTRE ABAS
@@ -211,15 +219,13 @@ with tab1:
 
         with col_conteudo:
             st.markdown("#### Resumo da Operação (Baseado nos filtros)")
-            v1, v2, v3 = st.columns(3)
-            # CARDS DINÂMICOS
+            # Retirado o Card de Indicador! Apenas 2 cartões focados.
+            v1, v2 = st.columns(2)
             v1.metric("💰 Faturamento Total Fretes", f"R$ {df_t1['VLR DO FRETE'].sum():,.2f}")
             v2.metric("📦 Total Fretes (Qtd. Pedidos)", df_t1['Nº DE PEDIDO'].nunique())
-            v3.metric("👨‍💼 Indicador Responsável", "Pedro Anjos")
             
             st.divider()
             
-            # GRÁFICOS DINÂMICOS
             cg1, cg2 = st.columns(2)
             with cg1:
                 df_filial_gasto = df_t1.groupby('FILIAL')['VLR DO FRETE'].sum().reset_index().sort_values('VLR DO FRETE', ascending=True)
@@ -237,7 +243,6 @@ with tab1:
             
             st.write("")
             
-            # Gráfico de Pizza (Dinâmico)
             df_med_gasto = df_t1.groupby('MEDIÇÃO/SUPRIMENTOS')['Nº DE PEDIDO'].nunique().reset_index()
             fig_med_sup = px.pie(df_med_gasto, values='Nº DE PEDIDO', names='MEDIÇÃO/SUPRIMENTOS', hole=0.4, 
                                  title="Volume: Suprimentos x Medição")
@@ -251,7 +256,7 @@ with tab1:
         st.info("👆 Importe a planilha para visualizar os dados.")
 
 # ==========================================
-# PÁGINA 2: MAPA TRAÇADO E SLA DINÂMICO
+# PÁGINA 2: MAPA TRACEJADO E SLA DINÂMICO
 # ==========================================
 with tab2:
     if not df.empty:
@@ -286,35 +291,51 @@ with tab2:
         col_mapa, col_dados = st.columns([6, 4], gap="large")
         
         with col_mapa:
-            st.markdown("**Rotas de Frete (Mapa Rápido)**")
+            st.markdown("**Rotas de Frete (Tracejado)**")
             
+            # Limpa apenas quem não tem coordenada identificada
             df_mapa = df_t2.dropna(subset=['lat_o', 'lon_o', 'lat_d', 'lon_d']).copy()
             
             if not df_mapa.empty:
+                fig_mapa = go.Figure()
+                
+                # Desenhando as linhas ligando Origem a Destino
                 lats, lons = [], []
-                # Desenho das linhas e marcadores no mapa
                 for _, row in df_mapa.iterrows():
                     lats.extend([row['lat_o'], row['lat_d'], None])
                     lons.extend([row['lon_o'], row['lon_d'], None])
                 
-                fig_mapa = go.Figure(go.Scattermapbox(
-                    mode="lines+markers", lon=lons, lat=lats,
-                    marker={'size': 7, 'color': '#00C49F'},
-                    line={'width': 2, 'color': '#1C83E1'}
+                fig_mapa.add_trace(go.Scattermapbox(
+                    mode="lines", lon=lons, lat=lats,
+                    line=dict(width=2, color="#1C83E1"), hoverinfo='none'
+                ))
+                
+                # Desenhando os Pontos de Origem (Azul)
+                fig_mapa.add_trace(go.Scattermapbox(
+                    mode="markers", lon=df_mapa['lon_o'], lat=df_mapa['lat_o'],
+                    marker=dict(size=8, color="#1C83E1"),
+                    text="Origem: " + df_mapa['CIDADE ORIGEM'], hoverinfo='text'
+                ))
+                
+                # Desenhando os Pontos de Destino (Verde)
+                fig_mapa.add_trace(go.Scattermapbox(
+                    mode="markers", lon=df_mapa['lon_d'], lat=df_mapa['lat_d'],
+                    marker=dict(size=8, color="#00C49F"),
+                    text="Destino: " + df_mapa['CIDADE DESTINO'], hoverinfo='text'
                 ))
                 
                 fig_mapa.update_layout(
                     margin={"r":0,"t":0,"l":0,"b":0},
-                    mapbox={
-                        'style': "carto-positron",
-                        'center': {'lon': -52.0, 'lat': -14.0},
-                        'zoom': 3
-                    },
+                    mapbox=dict(
+                        style="carto-positron",
+                        center=dict(lon=-52.0, lat=-14.0),
+                        zoom=3
+                    ),
                     showlegend=False
                 )
                 st.plotly_chart(fig_mapa, use_container_width=True)
             else:
-                st.info("Nenhuma coordenada válida encontrada com os filtros atuais.")
+                st.warning("⚠️ O mapa não pode ser gerado porque as informações de Cidade/Estado estão em branco ou em formato não reconhecido na sua planilha.")
 
         with col_dados:
             tem_pedido_unico = (f2_ped != "TODOS" and not df_t2.empty)
@@ -325,8 +346,8 @@ with tab2:
                 st.write(f"🏢 **FILIAL:** {linha['FILIAL']}")
                 st.write(f"📊 **CENTRO DE CUSTO:** {linha['CENTRO DE CUSTO']}")
                 st.write(f"💰 **FRETE:** R$ {linha['VLR DO FRETE']:,.2f} | 📄 **NOTA:** R$ {linha['VALOR DA NOTA']:,.2f}")
-                st.write(f"📤 **ORIGEM:** {linha['CIDADE/UF_ORIGEM']}")
-                st.write(f"📥 **DESTINO:** {linha['CIDADE/UF_DESTINO']}")
+                st.write(f"📤 **ORIGEM:** {linha['CIDADE ORIGEM']}")
+                st.write(f"📥 **DESTINO:** {linha['CIDADE DESTINO']}")
                 
                 d_col = linha['DATA COLETA'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA COLETA']) else 'N/A'
                 d_pre = linha['DATA DE PREVISÃO DE ENTREGA'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA DE PREVISÃO DE ENTREGA']) else 'N/A'
@@ -344,7 +365,7 @@ with tab2:
                 
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
-                st.write("Selecione um **Nº de Pedido Específico** para ver os detalhes completos da rota aqui.")
+                st.write("Selecione um **Nº de Pedido Específico** nos filtros para ver o detalhamento completo da entrega.")
                 st.write("")
                 
                 qtd_atraso = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'ATRASADO'])
