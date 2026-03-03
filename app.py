@@ -293,18 +293,16 @@ with tab2:
         st.write("")
         col_mapa, col_dados = st.columns([6, 4], gap="large")
         
+        sem_filtro = (f2_ped == "TODOS" and f2_tra == "TODAS" and f2_sla == "TODOS" and f2_ccusto == "TODOS" and f2_filial == "TODAS" and not f2_dt_inicio and not f2_dt_fim)
+
         with col_mapa:
-            if f2_ped == "TODOS":
-                st.markdown("**📍 Mapa de Calor (Densidade de Destinos)**")
-            else:
-                st.markdown("**🛣️ Rota de Entrega (Tracejado)**")
-                
             df_mapa = df_t2.dropna(subset=['lat_o', 'lon_o', 'lat_d', 'lon_d']).copy()
             
             if not df_mapa.empty:
                 fig_mapa = go.Figure()
                 
-                if f2_ped == "TODOS":
+                if sem_filtro:
+                    st.markdown("**📍 Mapa de Calor (Volume Geral de Entregas)**")
                     fig_mapa.add_trace(go.Densitymapbox(
                         lat=df_mapa['lat_d'],
                         lon=df_mapa['lon_d'],
@@ -314,23 +312,32 @@ with tab2:
                         showscale=False
                     ))
                 else:
-                    lats, lons = [], []
-                    for _, row in df_mapa.iterrows():
-                        lats.extend([row['lat_o'], row['lat_d'], None])
-                        lons.extend([row['lon_o'], row['lon_d'], None])
+                    st.markdown("**🛣️ Rotas de Entrega (Tracejado com Cores do SLA)**")
+                    
+                    cores_rotas = {'NO PRAZO': '#00C49F', 'ATRASADO': '#FF4B4B', 'EM ANDAMENTO': '#FFA500', 'SEM PREVISÃO': '#808080'}
+                    
+                    for status, cor in cores_rotas.items():
+                        df_status = df_mapa[df_mapa['PERFORMANCE_SLA'] == status]
+                        if not df_status.empty:
+                            lats, lons = [], []
+                            for _, row in df_status.iterrows():
+                                lats.extend([row['lat_o'], row['lat_d'], None])
+                                lons.extend([row['lon_o'], row['lon_d'], None])
+                            
+                            fig_mapa.add_trace(go.Scattermapbox(
+                                mode="lines", lon=lons, lat=lats,
+                                line=dict(width=2, color=cor),
+                                name=status, hoverinfo='none'
+                            ))
                     
                     fig_mapa.add_trace(go.Scattermapbox(
-                        mode="lines", lon=lons, lat=lats,
-                        line=dict(width=3, color="#00C49F"), hoverinfo='none'
-                    ))
-                    fig_mapa.add_trace(go.Scattermapbox(
                         mode="markers", lon=df_mapa['lon_o'], lat=df_mapa['lat_o'],
-                        marker=dict(size=12, color="#1C83E1"),
+                        marker=dict(size=8, color="#1C83E1"),
                         text="Origem: " + df_mapa['CIDADE ORIGEM'].astype(str), hoverinfo='text'
                     ))
                     fig_mapa.add_trace(go.Scattermapbox(
                         mode="markers", lon=df_mapa['lon_d'], lat=df_mapa['lat_d'],
-                        marker=dict(size=12, color="#00C49F"),
+                        marker=dict(size=8, color="#808080"),
                         text="Destino: " + df_mapa['CIDADE DESTINO'].astype(str), hoverinfo='text'
                     ))
                 
@@ -348,6 +355,25 @@ with tab2:
                 st.warning("⚠️ O mapa não possui rotas válidas para os filtros selecionados.")
 
         with col_dados:
+            if f2_tra != "TODAS":
+                qtd_atraso = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'ATRASADO'])
+                qtd_no_prazo = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'NO PRAZO'])
+                total_validos = qtd_atraso + qtd_no_prazo
+
+                otd = (qtd_no_prazo / total_validos) * 100 if total_validos > 0 else -1
+                nota_text, cor_nota, icone, msg_nota = get_otd_info(otd)
+
+                if otd >= 0:
+                    st.markdown(f"""
+                    <div style='background-color: {cor_nota}15; border-left: 5px solid {cor_nota}; padding: 15px; border-radius: 8px; margin-bottom: 20px;'>
+                        <h5 style='color: {cor_nota}; margin-top: 0;'>{icone} Performance Logística (SLA): {nota_text}</h5>
+                        <h2 style='color: {cor_nota}; margin: 10px 0;'>OTD: {otd:.1f}%</h2>
+                        <p style='margin-bottom: 0; font-size: 0.95em;'><strong>Direcionamento:</strong> {msg_nota}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.info("Nenhuma entrega concluída nesta transportadora para avaliar SLA.")
+
             tem_pedido_unico = (f2_ped != "TODOS" and not df_t2.empty)
             if tem_pedido_unico:
                 linha = df_t2.iloc[0]
@@ -376,30 +402,9 @@ with tab2:
                 
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
-                st.write("Selecione um **Nº de Pedido Específico** nos filtros para ver o detalhamento completo e o traçado exato da rota.")
-                st.write("")
+                if f2_tra == "TODAS":
+                    st.write("📌 Filtre uma Transportadora específica para gerar a avaliação estratégica Logística (OTD).")
                 
-                # ====== SÓ MOSTRA O INDICADOR SE HOUVER FILTRO DE TRANSPORTADORA OU SLA ======
-                if f2_tra != "TODAS" or f2_sla != "TODOS":
-                    qtd_atraso = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'ATRASADO'])
-                    qtd_no_prazo = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'NO PRAZO'])
-                    total_validos = qtd_atraso + qtd_no_prazo
-
-                    otd = (qtd_no_prazo / total_validos) * 100 if total_validos > 0 else -1
-                    nota_text, cor_nota, icone, msg_nota = get_otd_info(otd)
-
-                    if otd >= 0:
-                        st.markdown(f"""
-                        <div style='background-color: {cor_nota}15; border-left: 5px solid {cor_nota}; padding: 15px; border-radius: 8px; margin-bottom: 20px;'>
-                            <h5 style='color: {cor_nota}; margin-top: 0;'>{icone} Performance Logística (SLA): {nota_text}</h5>
-                            <h2 style='color: {cor_nota}; margin: 10px 0;'>OTD: {otd:.1f}%</h2>
-                            <p style='margin-bottom: 0; font-size: 0.95em;'><strong>Direcionamento:</strong> {msg_nota}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.info("Nenhuma entrega concluída neste filtro para calcular o OTD.")
-
-                # Gráfico de Volume Geral (Sempre visível para dar contexto)
                 st.markdown(f"##### Volume Geral de Entregas")
                 df_pie_sla = df_t2['PERFORMANCE_SLA'].value_counts().reset_index()
                 df_pie_sla.columns = ['PERFORMANCE', 'CONTAGEM']
@@ -407,6 +412,11 @@ with tab2:
                 fig_sla = px.pie(df_pie_sla, values='CONTAGEM', names='PERFORMANCE', color='PERFORMANCE', color_discrete_map=cores_sla, hole=0.3)
                 fig_sla.update_layout(margin=dict(t=10, b=10, l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
                 st.plotly_chart(fig_sla, use_container_width=True)
+
+        # ====== NOVA SEÇÃO: DETALHAMENTO DE DADOS ======
+        st.divider()
+        st.markdown("### 📋 Detalhamento das Entregas (Filtrado)")
+        st.dataframe(df_t2.drop(columns=['ID_INTERNO', 'lat_o', 'lon_o', 'lat_d', 'lon_d'], errors='ignore'), use_container_width=True, height=400)
 
 # ==========================================
 # PÁGINA 3: RANKING ESTRATÉGICO
