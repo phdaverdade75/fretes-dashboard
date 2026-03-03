@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import os
 import uuid
 
 # ==========================================
@@ -28,10 +27,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. MOTOR DO BANCO DE DADOS
+# 2. MOTOR DE DADOS (INICIA SEMPRE VAZIO)
 # ==========================================
-ARQUIVO_DB = "banco_fretes_final.csv"
-
 COORDENADAS_ESTADOS = {
     'AC': (-9.0238, -70.8120), 'AL': (-9.5328, -36.6698), 'AP': (1.4192, -51.7792),
     'AM': (-3.4168, -65.8561), 'BA': (-12.5797, -41.7007), 'CE': (-5.4984, -39.3206),
@@ -62,14 +59,9 @@ COLUNAS_PADRAO = [
     'DOCUMENTO', 'MEDIÇÃO/SUPRIMENTOS', 'DATA DE PREVISÃO DE ENTREGA', 'DATA ENTREGUE', 'OBSERVAÇÃO'
 ]
 
+# Inicializa o dataframe completamente vazio
 if 'banco_dados' not in st.session_state:
-    if os.path.exists(ARQUIVO_DB):
-        st.session_state.banco_dados = pd.read_csv(ARQUIVO_DB)
-        for col in ['DATA COLETA', 'DATA DE PREVISÃO DE ENTREGA', 'DATA ENTREGUE']:
-            if col in st.session_state.banco_dados.columns:
-                st.session_state.banco_dados[col] = pd.to_datetime(st.session_state.banco_dados[col], errors='coerce')
-    else:
-        st.session_state.banco_dados = pd.DataFrame(columns=COLUNAS_PADRAO)
+    st.session_state.banco_dados = pd.DataFrame(columns=COLUNAS_PADRAO)
 
 def limpar_dados(df):
     df.columns = df.columns.astype(str).str.strip().str.upper().str.replace('  ', ' ')
@@ -136,10 +128,10 @@ def get_otd_info(otd):
 st.title("🚚 FRETES ANALYTICS V1.0")
 st.caption("Painel Executivo de Gestão Logística")
 
-with st.expander("📥 Importar Dados (Atualizar Base)"):
+with st.expander("📥 Importar Dados (Atualizar Base)", expanded=True):
     col_up, col_btn = st.columns([8, 2])
     with col_up:
-        arq_upload = st.file_uploader("Subir Planilha Matriz (.xlsx, .xlsb)", type=["xlsx", "xlsb", "xls"], label_visibility="collapsed")
+        arq_upload = st.file_uploader("Subir Planilha Matriz (.xlsx, .xlsb, .xls)", type=["xlsx", "xlsb", "xls"], label_visibility="collapsed")
     with col_btn:
         if st.button("🔄 Sincronizar Dados", type="primary", use_container_width=True):
             if arq_upload:
@@ -156,7 +148,6 @@ with st.expander("📥 Importar Dados (Atualizar Base)"):
                     
                     if sucesso:
                         st.session_state.banco_dados = df_limpo
-                        df_limpo.to_csv(ARQUIVO_DB, index=False)
                         st.success("Dados processados com sucesso! Painel atualizado.")
                         st.rerun()
                     else:
@@ -251,7 +242,7 @@ with tab1:
             st.markdown("### 📋 Diário de Bordo (Filtrado)")
             st.dataframe(df_t1.drop(columns=['ID_INTERNO', 'lat_o', 'lon_o', 'lat_d', 'lon_d'], errors='ignore'), use_container_width=True, height=400)
     else:
-        st.info("👆 Importe a planilha para visualizar os dados.")
+        st.info("👆 Por favor, faça o upload de uma planilha para iniciar a análise e visualizar os indicadores.")
 
 # ==========================================
 # PÁGINA 2: MAPA DE CALOR E SLA
@@ -413,10 +404,11 @@ with tab2:
                 fig_sla.update_layout(margin=dict(t=10, b=10, l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
                 st.plotly_chart(fig_sla, use_container_width=True)
 
-        # ====== NOVA SEÇÃO: DETALHAMENTO DE DADOS ======
         st.divider()
         st.markdown("### 📋 Detalhamento das Entregas (Filtrado)")
         st.dataframe(df_t2.drop(columns=['ID_INTERNO', 'lat_o', 'lon_o', 'lat_d', 'lon_d'], errors='ignore'), use_container_width=True, height=400)
+    else:
+        st.info("👆 Por favor, faça o upload de uma planilha para visualizar o mapa e os indicadores SLA.")
 
 # ==========================================
 # PÁGINA 3: RANKING ESTRATÉGICO
@@ -485,4 +477,4 @@ with tab3:
             st.plotly_chart(fig_rank_sla, use_container_width=True)
 
     else:
-        st.info("Sincronize os dados para visualizar o ranking.")
+        st.info("👆 Por favor, faça o upload de uma planilha para gerar o ranking de transportadoras.")
