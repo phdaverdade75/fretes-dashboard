@@ -118,7 +118,6 @@ def get_coords(estado_str, cidade_str):
             if nome in cid: return COORDENADAS_ESTADOS[nomes_estados[nome]]
     return (None, None)
 
-# === REGRA DE NEGÓCIO: INDICADOR ESTRATÉGICO OTD ===
 def get_otd_info(otd):
     if otd < 0:
         return "N/A", "#808080", "⚪", "Não há volume finalizado para avaliar OTD."
@@ -349,26 +348,6 @@ with tab2:
                 st.warning("⚠️ O mapa não possui rotas válidas para os filtros selecionados.")
 
         with col_dados:
-            # ====== INDICADOR ESTRATÉGICO (AGORA FIXO NO TOPO) ======
-            qtd_atraso = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'ATRASADO'])
-            qtd_no_prazo = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'NO PRAZO'])
-            total_validos = qtd_atraso + qtd_no_prazo
-
-            otd = (qtd_no_prazo / total_validos) * 100 if total_validos > 0 else -1
-            nota_text, cor_nota, icone, msg_nota = get_otd_info(otd)
-
-            if otd >= 0:
-                st.markdown(f"""
-                <div style='background-color: {cor_nota}15; border-left: 5px solid {cor_nota}; padding: 15px; border-radius: 8px; margin-bottom: 20px;'>
-                    <h5 style='color: {cor_nota}; margin-top: 0;'>{icone} Performance Logística (SLA): {nota_text}</h5>
-                    <h2 style='color: {cor_nota}; margin: 10px 0;'>OTD: {otd:.1f}%</h2>
-                    <p style='margin-bottom: 0; font-size: 0.95em;'><strong>Direcionamento:</strong> {msg_nota}</p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.info("Nenhuma entrega concluída neste filtro para calcular o OTD.")
-
-            # ====== DETALHES DO PEDIDO OU GRÁFICO GERAL ======
             tem_pedido_unico = (f2_ped != "TODOS" and not df_t2.empty)
             if tem_pedido_unico:
                 linha = df_t2.iloc[0]
@@ -384,10 +363,8 @@ with tab2:
                 d_pre = linha['DATA DE PREVISÃO DE ENTREGA'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA DE PREVISÃO DE ENTREGA']) else 'N/A'
                 d_ent = linha['DATA ENTREGUE'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA ENTREGUE']) else 'N/A'
                 
-                # NOME CORRIGIDO PARA DATA ENTREGA
                 st.write(f"📅 **COLETA:** {d_col} | **PREVISÃO:** {d_pre} | **DATA ENTREGA:** {d_ent}")
                 
-                # OBSERVAÇÃO BLINDADA (SEMPRE APARECE)
                 obs_texto = str(linha['OBSERVAÇÃO']).strip().upper()
                 if pd.isna(linha['OBSERVAÇÃO']) or obs_texto in ["NAN", "NÃO INFORMADO", "NONE", ""]:
                     obs_texto = "NÃO INFORMADA"
@@ -399,6 +376,30 @@ with tab2:
                 
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
+                st.write("Selecione um **Nº de Pedido Específico** nos filtros para ver o detalhamento completo e o traçado exato da rota.")
+                st.write("")
+                
+                # ====== SÓ MOSTRA O INDICADOR SE HOUVER FILTRO DE TRANSPORTADORA OU SLA ======
+                if f2_tra != "TODAS" or f2_sla != "TODOS":
+                    qtd_atraso = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'ATRASADO'])
+                    qtd_no_prazo = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'NO PRAZO'])
+                    total_validos = qtd_atraso + qtd_no_prazo
+
+                    otd = (qtd_no_prazo / total_validos) * 100 if total_validos > 0 else -1
+                    nota_text, cor_nota, icone, msg_nota = get_otd_info(otd)
+
+                    if otd >= 0:
+                        st.markdown(f"""
+                        <div style='background-color: {cor_nota}15; border-left: 5px solid {cor_nota}; padding: 15px; border-radius: 8px; margin-bottom: 20px;'>
+                            <h5 style='color: {cor_nota}; margin-top: 0;'>{icone} Performance Logística (SLA): {nota_text}</h5>
+                            <h2 style='color: {cor_nota}; margin: 10px 0;'>OTD: {otd:.1f}%</h2>
+                            <p style='margin-bottom: 0; font-size: 0.95em;'><strong>Direcionamento:</strong> {msg_nota}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.info("Nenhuma entrega concluída neste filtro para calcular o OTD.")
+
+                # Gráfico de Volume Geral (Sempre visível para dar contexto)
                 st.markdown(f"##### Volume Geral de Entregas")
                 df_pie_sla = df_t2['PERFORMANCE_SLA'].value_counts().reset_index()
                 df_pie_sla.columns = ['PERFORMANCE', 'CONTAGEM']
