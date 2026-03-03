@@ -28,7 +28,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. MOTOR DO BANCO DE DADOS E COORDENADAS
+# 2. MOTOR DO BANCO DE DADOS
 # ==========================================
 ARQUIVO_DB = "banco_fretes_final.csv"
 
@@ -216,7 +216,6 @@ with tab1:
 
         with col_conteudo:
             st.markdown("#### Resumo da Operação")
-            # Apenas os 2 cards solicitados
             v1, v2 = st.columns(2)
             v1.metric("💰 Faturamento Total Fretes", f"R$ {df_t1['VLR DO FRETE'].sum():,.2f}")
             v2.metric("📦 Total Fretes (Qtd. Pedidos)", df_t1['Nº DE PEDIDO'].nunique())
@@ -253,7 +252,7 @@ with tab1:
         st.info("👆 Importe a planilha para visualizar os dados.")
 
 # ==========================================
-# PÁGINA 2: MAPA TRACEJADO E SLA DINÂMICO
+# PÁGINA 2: MAPA DE CALOR E SLA
 # ==========================================
 with tab2:
     if not df.empty:
@@ -294,47 +293,62 @@ with tab2:
         col_mapa, col_dados = st.columns([6, 4], gap="large")
         
         with col_mapa:
-            st.markdown("**Rotas de Frete (Tracejado)**")
-            
+            if f2_ped == "TODOS":
+                st.markdown("**📍 Mapa de Calor (Densidade de Destinos)**")
+            else:
+                st.markdown("**🛣️ Rota de Entrega (Tracejado)**")
+                
             df_mapa = df_t2.dropna(subset=['lat_o', 'lon_o', 'lat_d', 'lon_d']).copy()
             
             if not df_mapa.empty:
                 fig_mapa = go.Figure()
                 
-                lats, lons = [], []
-                for _, row in df_mapa.iterrows():
-                    lats.extend([row['lat_o'], row['lat_d'], None])
-                    lons.extend([row['lon_o'], row['lon_d'], None])
-                
-                fig_mapa.add_trace(go.Scattermapbox(
-                    mode="lines", lon=lons, lat=lats,
-                    line=dict(width=2, color="#1C83E1"), hoverinfo='none'
-                ))
-                
-                fig_mapa.add_trace(go.Scattermapbox(
-                    mode="markers", lon=df_mapa['lon_o'], lat=df_mapa['lat_o'],
-                    marker=dict(size=8, color="#1C83E1"),
-                    text="Origem: " + df_mapa['CIDADE ORIGEM'].astype(str), hoverinfo='text'
-                ))
-                
-                fig_mapa.add_trace(go.Scattermapbox(
-                    mode="markers", lon=df_mapa['lon_d'], lat=df_mapa['lat_d'],
-                    marker=dict(size=8, color="#00C49F"),
-                    text="Destino: " + df_mapa['CIDADE DESTINO'].astype(str), hoverinfo='text'
-                ))
+                if f2_ped == "TODOS":
+                    # MODO HEATMAP: Mostra as zonas mais quentes de entregas
+                    fig_mapa.add_trace(go.Densitymapbox(
+                        lat=df_mapa['lat_d'],
+                        lon=df_mapa['lon_d'],
+                        z=[1] * len(df_mapa),
+                        radius=25,
+                        colorscale='Inferno',
+                        showscale=False
+                    ))
+                else:
+                    # MODO ROTA: Tracejado apenas quando um pedido é selecionado
+                    lats, lons = [], []
+                    for _, row in df_mapa.iterrows():
+                        lats.extend([row['lat_o'], row['lat_d'], None])
+                        lons.extend([row['lon_o'], row['lon_d'], None])
+                    
+                    fig_mapa.add_trace(go.Scattermapbox(
+                        mode="lines", lon=lons, lat=lats,
+                        line=dict(width=3, color="#00C49F"), hoverinfo='none'
+                    ))
+                    
+                    fig_mapa.add_trace(go.Scattermapbox(
+                        mode="markers", lon=df_mapa['lon_o'], lat=df_mapa['lat_o'],
+                        marker=dict(size=12, color="#1C83E1"),
+                        text="Origem: " + df_mapa['CIDADE ORIGEM'].astype(str), hoverinfo='text'
+                    ))
+                    
+                    fig_mapa.add_trace(go.Scattermapbox(
+                        mode="markers", lon=df_mapa['lon_d'], lat=df_mapa['lat_d'],
+                        marker=dict(size=12, color="#00C49F"),
+                        text="Destino: " + df_mapa['CIDADE DESTINO'].astype(str), hoverinfo='text'
+                    ))
                 
                 fig_mapa.update_layout(
                     margin={"r":0,"t":0,"l":0,"b":0},
                     mapbox=dict(
-                        style="carto-positron",
+                        style="carto-darkmatter", # Mapa noturno lindão e executivo
                         center=dict(lon=-52.0, lat=-14.0),
-                        zoom=3
+                        zoom=3.5
                     ),
                     showlegend=False
                 )
                 st.plotly_chart(fig_mapa, use_container_width=True)
             else:
-                st.warning("⚠️ O mapa não possui rotas válidas para os filtros selecionados ou as informações de Estado na planilha estão em branco.")
+                st.warning("⚠️ O mapa não possui rotas válidas para os filtros selecionados.")
 
         with col_dados:
             tem_pedido_unico = (f2_ped != "TODOS" and not df_t2.empty)
@@ -364,27 +378,11 @@ with tab2:
                 
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
-                st.write("Selecione um **Nº de Pedido Específico** nos filtros para ver o detalhamento completo da entrega.")
+                st.write("Selecione um **Nº de Pedido Específico** nos filtros para ver o detalhamento completo e o traçado exato da rota.")
                 st.write("")
                 
-                qtd_atraso = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'ATRASADO'])
-                qtd_no_prazo = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'NO PRAZO'])
-                total_validos = qtd_atraso + qtd_no_prazo
-
-                if total_validos > 0:
-                    otd = (qtd_no_prazo / total_validos) * 100
-                    cor_nota = "#00C49F" if otd >= 95 else "#1C83E1" if otd >= 85 else "#FFA500" if otd >= 70 else "#FF4B4B"
-                    icone = "🟢" if otd >= 95 else "🔵" if otd >= 85 else "🟡" if otd >= 70 else "🔴"
-                    nota_text = "EXCELENTE" if otd >= 95 else "BOA" if otd >= 85 else "ALERTA" if otd >= 70 else "CRÍTICA"
-
-                    st.markdown(f"""
-                    <div style='background-color: {cor_nota}15; border-left: 5px solid {cor_nota}; padding: 15px; border-radius: 8px; margin-bottom: 20px;'>
-                        <h5 style='color: {cor_nota}; margin-top: 0;'>{icone} Avaliação Média do Período/Filtro: {nota_text}</h5>
-                        <h3 style='color: {cor_nota}; margin: 10px 0;'>OTD: {otd:.1f}%</h3>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                st.markdown(f"##### Performance Geral de Entregas (Baseado no Filtro)")
+                # Pizza de Status focada e limpa
+                st.markdown(f"##### Status de Entregas (SLA)")
                 df_pie_sla = df_t2['PERFORMANCE_SLA'].value_counts().reset_index()
                 df_pie_sla.columns = ['PERFORMANCE', 'CONTAGEM']
                 cores_sla = {'NO PRAZO': '#00C49F', 'ATRASADO': '#FF4B4B', 'EM ANDAMENTO': '#FFA500', 'SEM PREVISÃO': '#808080'}
