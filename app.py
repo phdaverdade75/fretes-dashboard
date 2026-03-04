@@ -6,6 +6,8 @@ import os
 import uuid
 import math
 import requests
+import unicodedata
+import re
 
 # ==========================================
 # 1. CONFIGURAÇÃO DA PÁGINA E DESIGN PREMIUM
@@ -62,26 +64,45 @@ nomes_estados = {
 }
 
 def limpar_dados(df):
-    # Padroniza tudo para letras maiúsculas e tira espaços sobrando nas pontas
-    df.columns = df.columns.astype(str).str.strip().str.upper().str.replace('  ', ' ')
+    # Salva os nomes originais para caso dê erro podermos ver o que o Excel enviou
+    colunas_originais = list(df.columns)
     
-    # BUSCA INTELIGENTE DE COLUNAS (Evita o erro do Nº vs N°)
-    novo_mapeamento = {}
+    # 1. Limpeza Blindada: Tira acentos, símbolos (º, °), e deixa apenas letras e números
+    def formatar_coluna(nome):
+        nome = str(nome).upper().strip()
+        nome = unicodedata.normalize('NFKD', nome).encode('ASCII', 'ignore').decode('utf-8')
+        nome = re.sub(r'[^A-Z0-9\s]', '', nome)
+        return re.sub(r'\s+', ' ', nome).strip()
+
+    df.columns = [formatar_coluna(c) for c in df.columns]
+    
+    # 2. Mapeamento Inteligente: Busca por palavras-chave em vez do nome exato
+    mapeamento = {}
     for col in df.columns:
-        if 'PEDIDO' in col: novo_mapeamento[col] = 'Nº DE PEDIDO'
-        elif 'VALOR FRETE' in col or 'VALOR DO FRETE' in col or 'VLR FRETE' in col: novo_mapeamento[col] = 'VLR DO FRETE'
-        elif 'STATUS' in col and 'FRETE' not in col: novo_mapeamento[col] = 'STATUS FRETES'
-        elif 'MEDICAO' in col or 'MEDIÇAO' in col: novo_mapeamento[col] = 'MEDIÇÃO/SUPRIMENTOS'
-        elif 'PREVISÃO' in col or 'PREVISAO' in col: novo_mapeamento[col] = 'DATA DE PREVISÃO DE ENTREGA'
-        elif col == 'DATA ENTREGA': novo_mapeamento[col] = 'DATA ENTREGUE'
-        elif 'OBSERVA' in col: novo_mapeamento[col] = 'OBSERVAÇÃO'
+        if 'PEDIDO' in col: mapeamento[col] = 'Nº DE PEDIDO'
+        elif 'VALOR FRETE' in col or 'VLR DO FRETE' in col or 'VLR FRETE' in col: mapeamento[col] = 'VLR DO FRETE'
+        elif 'PREVISAO' in col: mapeamento[col] = 'DATA DE PREVISÃO DE ENTREGA'
+        elif 'ENTREGA' in col and 'PREVISAO' not in col: mapeamento[col] = 'DATA ENTREGUE'
+        elif 'MEDICAO' in col or 'SUPRIMENTO' in col: mapeamento[col] = 'MEDIÇÃO/SUPRIMENTOS'
+        elif 'STATUS' in col: mapeamento[col] = 'STATUS FRETES'
+        elif 'OBSERVA' in col: mapeamento[col] = 'OBSERVAÇÃO'
+        elif 'VEICULO' in col: mapeamento[col] = 'VEÍCULO'
+
+    df.rename(columns=mapeamento, inplace=True)
     
-    # Aplica o mapeamento inteligente
-    df.rename(columns=novo_mapeamento, inplace=True)
-    
-    if 'Nº DE PEDIDO' not in df.columns: 
-        return df, False, "Erro crítico: A coluna de Pedidos não foi encontrada. Verifique se existe alguma coluna com a palavra 'PEDIDO'."
-        
+    # Se ainda não encontrou o Pedido, tenta achar a coluna de Processo/Chamado
+    if 'Nº DE PEDIDO' not in df.columns:
+        for col in df.columns:
+            if 'CHAMADO' in col or 'PROCESSO' in col:
+                df.rename(columns={col: 'Nº DE PEDIDO'}, inplace=True)
+                break
+                
+    # Se a coluna definitivamente não existir, exibe um alerta mostrando exatamente as colunas que foram lidas
+    if 'Nº DE PEDIDO' not in df.columns:
+        msg = f"Erro crítico: A coluna de Pedidos não foi encontrada. O sistema leu as seguintes colunas do seu Excel: {', '.join(colunas_originais)}. Por favor, garanta que existe uma coluna chamada 'PEDIDO'."
+        return df, False, msg
+
+    # Cria ID Único se não existir
     if 'ID_INTERNO' not in df.columns: 
         df['ID_INTERNO'] = [str(uuid.uuid4()) for _ in range(len(df))]
     
@@ -93,15 +114,17 @@ def limpar_dados(df):
         'DOCUMENTO', 'MEDIÇÃO/SUPRIMENTOS', 'DATA DE PREVISÃO DE ENTREGA', 'DATA ENTREGUE', 'OBSERVAÇÃO'
     ]
     
-    for col in colunas_finais:
-        if col not in df.columns: df[col] = "NÃO INFORMADO"
+    for c in colunas_finais:
+        if c not in df.columns: df[c] = "NÃO INFORMADO"
 
-    for col in ['VLR DO FRETE', 'VALOR DA NOTA']:
-        df[col] = df[col].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip()
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+    # Corrige os valores financeiros (R$)
+    for c in ['VLR DO FRETE', 'VALOR DA NOTA']:
+        df[c] = df[c].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip()
+        df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0.0)
     
-    for col in ['DATA COLETA', 'DATA DE PREVISÃO DE ENTREGA', 'DATA ENTREGUE']:
-        df[col] = pd.to_datetime(df[col], errors='coerce')
+    # Converte as Datas
+    for c in ['DATA COLETA', 'DATA DE PREVISÃO DE ENTREGA', 'DATA ENTREGUE']:
+        df[c] = pd.to_datetime(df[c], errors='coerce')
         
     return df[colunas_finais], True, "Sucesso"
 
@@ -149,13 +172,18 @@ if 'banco_dados' not in st.session_state:
 with st.expander("📥 Importar Dados (Atualizar Base)", expanded=st.session_state.banco_dados.empty):
     col_up, col_btn = st.columns([8, 2])
     with col_up:
-        arq_upload = st.file_uploader("Subir Planilha Matriz", type=["xlsx", "xlsb", "xls"], label_visibility="collapsed")
+        arq_upload = st.file_uploader("Subir Planilha Matriz", type=["xlsx", "xlsb", "xls", "csv"], label_visibility="collapsed")
     with col_btn:
         if st.button("🔄 Sincronizar", type="primary", use_container_width=True):
             if arq_upload:
                 try:
-                    motor = 'pyxlsb' if arq_upload.name.lower().endswith('.xlsb') else 'openpyxl'
-                    df_temp = pd.read_excel(arq_upload, engine=motor)
+                    # Adicionado suporte também para CSV caso a planilha suba neste formato
+                    if arq_upload.name.lower().endswith('.csv'):
+                        df_temp = pd.read_csv(arq_upload)
+                    else:
+                        motor = 'pyxlsb' if arq_upload.name.lower().endswith('.xlsb') else 'openpyxl'
+                        df_temp = pd.read_excel(arq_upload, engine=motor)
+                        
                     df_limpo, sucesso, msg = limpar_dados(df_temp)
                     if sucesso:
                         st.session_state.banco_dados = df_limpo
