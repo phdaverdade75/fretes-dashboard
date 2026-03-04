@@ -361,6 +361,10 @@ with tab2:
         sem_filtro = (f2_ped == "TODOS" and f2_tra == "TODAS" and f2_sla == "TODOS" and f2_filial == "TODAS" and not f2_dt_inicio and not f2_dt_fim)
 
         with col_mapa:
+            # BOTÃO DE MODO CLARO/ESCURO PARA O MAPA
+            mapa_escuro = st.toggle("🌙 Modo Escuro do Mapa", value=True)
+            estilo_mapbox = "carto-darkmatter" if mapa_escuro else "carto-positron"
+            
             df_mapa = df_t2.dropna(subset=['lat_o', 'lon_o', 'lat_d', 'lon_d']).copy()
             
             if not df_mapa.empty:
@@ -410,7 +414,7 @@ with tab2:
                 
                 fig_mapa.update_layout(
                     margin={"r":0,"t":0,"l":0,"b":0},
-                    mapbox=dict(style="carto-darkmatter", center=dict(lon=-52.0, lat=-14.0), zoom=3.5),
+                    mapbox=dict(style=estilo_mapbox, center=dict(lon=-52.0, lat=-14.0), zoom=3.5),
                     showlegend=False
                 )
                 st.plotly_chart(fig_mapa, use_container_width=True)
