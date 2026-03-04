@@ -15,8 +15,8 @@ st.set_page_config(page_title="FRETES ANALYTICS V1.0", page_icon="🚚", layout=
 st.markdown("""
     <style>
     div[data-testid="metric-container"] {
-        background: linear-gradient(145deg, #ffffff, #f4f6f9);
-        border: 1px solid #e0e4e8;
+        background: var(--secondary-background-color);
+        border: 1px solid rgba(128,128,128,0.2);
         border-left: 5px solid #1C83E1;
         padding: 20px;
         border-radius: 10px;
@@ -25,20 +25,20 @@ st.markdown("""
     .badge-excelente { background-color: #00C49F; color: white; padding: 6px 16px; border-radius: 20px; font-weight: 600; display: inline-block; margin-top: 8px; font-size: 0.9em; letter-spacing: 0.5px;}
     .badge-ruim { background-color: #FF4B4B; color: white; padding: 6px 16px; border-radius: 20px; font-weight: 600; display: inline-block; margin-top: 8px; font-size: 0.9em; letter-spacing: 0.5px;}
     .badge-andamento { background-color: #FFA500; color: white; padding: 6px 16px; border-radius: 20px; font-weight: 600; display: inline-block; margin-top: 8px; font-size: 0.9em; letter-spacing: 0.5px;}
-    .bloco-info { background-color: rgba(128, 128, 128, 0.05); padding: 20px; border-radius: 12px; border: 1px solid rgba(128,128,128,0.1); }
+    .bloco-info { background-color: var(--secondary-background-color); padding: 20px; border-radius: 12px; border: 1px solid rgba(128,128,128,0.2); }
     
-    /* CARDS MINIMALISTAS */
+    /* CARDS MINIMALISTAS - ADAPTADOS PARA MODO CLARO E ESCURO */
     .card-mini {
-        background-color: #ffffff;
-        border: 1px solid #e0e4e8;
+        background-color: var(--secondary-background-color);
+        border: 1px solid rgba(128,128,128,0.2);
         border-radius: 6px;
         padding: 10px;
         text-align: center;
         margin-bottom: 20px;
         box-shadow: 1px 2px 5px rgba(0,0,0,0.03);
     }
-    .card-mini h4 { margin: 0; font-size: 11px; color: #666; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;}
-    .card-mini h2 { margin: 5px 0 0 0; font-size: 22px; font-weight: 800; }
+    .card-mini h4 { margin: 0; font-size: 11px; color: var(--text-color); opacity: 0.8; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;}
+    .card-mini h2 { margin: 5px 0 0 0; font-size: 22px; font-weight: 800; color: var(--text-color); }
     
     .b-verde { border-left: 4px solid #00C49F; }
     .t-verde { color: #00C49F; }
@@ -261,7 +261,6 @@ with tab1:
             cg1, cg2 = st.columns(2)
             with cg1:
                 df_filial_gasto = df_t1.groupby('FILIAL')['VLR DO FRETE'].sum().reset_index().sort_values('VLR DO FRETE', ascending=True)
-                # Adicionado os números exatos em R$ como pedido
                 fig_filial = px.bar(df_filial_gasto, y='FILIAL', x='VLR DO FRETE', orientation='h', title="Faturamento por Filial", color='VLR DO FRETE', color_continuous_scale='Teal', text='VLR DO FRETE')
                 fig_filial.update_traces(texttemplate='R$ %{text:,.2f}', textposition='outside')
                 fig_filial.update_layout(margin=dict(l=0, r=0, t=40, b=0), coloraxis_showscale=False)
@@ -269,7 +268,6 @@ with tab1:
 
             with cg2:
                 df_veiculo_uso = df_t1.groupby('VEÍCULO')['Nº DE PEDIDO'].nunique().reset_index().sort_values('Nº DE PEDIDO', ascending=True)
-                # Adicionado os números exatos nas barrinhas como pedido
                 fig_veiculo = px.bar(df_veiculo_uso, y='VEÍCULO', x='Nº DE PEDIDO', orientation='h', title="Veículos Mais Utilizados", color='Nº DE PEDIDO', color_continuous_scale='Blues', text='Nº DE PEDIDO')
                 fig_veiculo.update_traces(texttemplate='%{text}', textposition='outside')
                 fig_veiculo.update_layout(margin=dict(l=0, r=0, t=40, b=0), coloraxis_showscale=False)
@@ -277,7 +275,6 @@ with tab1:
             
             st.write("")
             
-            # --- O GRÁFICO DE PIZZA VOLTOU INTACTO ---
             df_med_gasto = df_t1.groupby('MEDIÇÃO/SUPRIMENTOS')['Nº DE PEDIDO'].nunique().reset_index()
             fig_med_sup = px.pie(df_med_gasto, values='Nº DE PEDIDO', names='MEDIÇÃO/SUPRIMENTOS', hole=0.4, 
                                  title="Volume: Suprimentos x Medição")
@@ -292,7 +289,10 @@ with tab1:
             st.markdown('<div class="bloco-info">', unsafe_allow_html=True)
             st.write(f"🏢 **FILIAL:** {linha['FILIAL']} | 📊 **CENTRO DE CUSTO:** {linha['CENTRO DE CUSTO']}")
             st.write(f"💰 **FRETE:** R$ {linha['VLR DO FRETE']:,.2f} | 📄 **NOTA:** R$ {linha['VALOR DA NOTA']:,.2f}")
-            st.write(f"📤 **ORIGEM:** {linha['CIDADE ORIGEM']} ➡️ 📥 **DESTINO:** {linha['CIDADE DESTINO']}")
+            
+            uf_origem = str(linha['ESTADO ORIGEM']).split('-')[0].strip() if pd.notna(linha['ESTADO ORIGEM']) else ""
+            uf_destino = str(linha['ESTADO DESTINO']).split('-')[0].strip() if pd.notna(linha['ESTADO DESTINO']) else ""
+            st.write(f"📤 **ORIGEM:** {linha['CIDADE ORIGEM']} - {uf_origem} ➡️ 📥 **DESTINO:** {linha['CIDADE DESTINO']} - {uf_destino}")
             
             d_col = linha['DATA COLETA'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA COLETA']) else 'N/A'
             d_pre = linha['DATA DE PREVISÃO DE ENTREGA'].strftime('%d/%m/%Y') if pd.notnull(linha['DATA DE PREVISÃO DE ENTREGA']) else 'N/A'
@@ -322,7 +322,6 @@ with tab2:
     if not df.empty:
         st.markdown("<h4 style='color: #1C83E1;'>🧭 Filtros de Rastreamento Total</h4>", unsafe_allow_html=True)
         
-        # --- CORREÇÃO DO FILTRO CASCATA (Sem quebrar ao selecionar SLA) ---
         df_t2_base = df.copy()
 
         cf1, cf2, cf3 = st.columns(3)
@@ -330,30 +329,25 @@ with tab2:
         f2_dt_fim = cf2.date_input("Período Coleta (Até)", value=None, key="p2_dt_fim")
         f2_sla = cf3.selectbox("🚥 Status SLA", ["TODOS", "NO PRAZO", "ATRASADO", "EM ANDAMENTO"], key="p2_sla") 
 
-        # O Filtro de Data e SLA atua PRIMEIRO, limitando a base para as próximas caixas.
         if f2_dt_inicio: df_t2_base = df_t2_base[df_t2_base['DATA COLETA'].dt.date >= f2_dt_inicio]
         if f2_dt_fim: df_t2_base = df_t2_base[df_t2_base['DATA COLETA'].dt.date <= f2_dt_fim]
         if f2_sla != "TODOS": df_t2_base = df_t2_base[df_t2_base['PERFORMANCE_SLA'] == f2_sla]
 
-        # Agora, a lista de pedidos, filiais e transportadoras mostra apenas as opções da tabela já filtrada
-        c1, c2, c3, c4 = st.columns(4)
+        # REMOVIDO: Filtro de Centro de Custo da Página 2
+        c1, c2, c3 = st.columns(3)
         f2_ped = c1.selectbox("📌 Nº de Pedido", ["TODOS"] + sorted(df_t2_base['Nº DE PEDIDO'].unique()), key="p2_ped")
         if f2_ped != "TODOS": df_t2_base = df_t2_base[df_t2_base['Nº DE PEDIDO'] == f2_ped]
         
         f2_tra = c2.selectbox("🏢 Transportadora", ["TODAS"] + sorted(df_t2_base['TRANSPORTADORA'].unique()), key="p2_tra")
         if f2_tra != "TODAS": df_t2_base = df_t2_base[df_t2_base['TRANSPORTADORA'] == f2_tra]
         
-        f2_ccusto = c3.selectbox("📊 Centro de Custo", ["TODOS"] + sorted(df_t2_base['CENTRO DE CUSTO'].astype(str).unique()), key="p2_cc")
-        if f2_ccusto != "TODOS": df_t2_base = df_t2_base[df_t2_base['CENTRO DE CUSTO'].astype(str) == f2_ccusto]
-        
-        f2_filial = c4.selectbox("🏢 Filial", ["TODAS"] + sorted(df_t2_base['FILIAL'].astype(str).unique()), key="p2_fil")
+        f2_filial = c3.selectbox("🏢 Filial", ["TODAS"] + sorted(df_t2_base['FILIAL'].astype(str).unique()), key="p2_fil")
         if f2_filial != "TODAS": df_t2_base = df_t2_base[df_t2_base['FILIAL'].astype(str) == f2_filial]
 
         df_t2 = df_t2_base.copy()
         
         st.write("")
         
-        # --- CARDS MINIMALISTAS DA PÁGINA 2 (Logo abaixo dos filtros) ---
         n_prazo = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'NO PRAZO'])
         n_atraso = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'ATRASADO'])
         n_andam = len(df_t2[df_t2['PERFORMANCE_SLA'] == 'EM ANDAMENTO'])
@@ -362,11 +356,10 @@ with tab2:
         card1.markdown(f"<div class='card-mini b-verde'><h4>✅ NO PRAZO</h4><h2 class='t-verde'>{n_prazo}</h2></div>", unsafe_allow_html=True)
         card2.markdown(f"<div class='card-mini b-vermelho'><h4>🚨 ATRASADO</h4><h2 class='t-vermelho'>{n_atraso}</h2></div>", unsafe_allow_html=True)
         card3.markdown(f"<div class='card-mini b-amarelo'><h4>⏳ EM ANDAMENTO</h4><h2 class='t-amarelo'>{n_andam}</h2></div>", unsafe_allow_html=True)
-        # -------------------------------------------------------------
 
         col_mapa, col_dados = st.columns([6, 4], gap="large")
         
-        sem_filtro = (f2_ped == "TODOS" and f2_tra == "TODAS" and f2_sla == "TODOS" and f2_ccusto == "TODOS" and f2_filial == "TODAS" and not f2_dt_inicio and not f2_dt_fim)
+        sem_filtro = (f2_ped == "TODOS" and f2_tra == "TODAS" and f2_sla == "TODOS" and f2_filial == "TODAS" and not f2_dt_inicio and not f2_dt_fim)
 
         with col_mapa:
             df_mapa = df_t2.dropna(subset=['lat_o', 'lon_o', 'lat_d', 'lon_d']).copy()
@@ -447,9 +440,14 @@ with tab2:
                 linha = df_t2.iloc[0]
                 st.markdown('<div class="bloco-info">', unsafe_allow_html=True)
                 st.markdown(f"##### Detalhes da Rota (Pedido: {f2_ped})")
-                st.write(f"🏢 **FILIAL:** {linha['FILIAL']}")
+                
+                # ADIÇÃO: Exibição do Centro de Custo e dos Estados
+                st.write(f"🏢 **FILIAL:** {linha['FILIAL']} | 📊 **CENTRO DE CUSTO:** {linha['CENTRO DE CUSTO']}")
                 st.write(f"💰 **FRETE:** R$ {linha['VLR DO FRETE']:,.2f} | 📄 **NOTA:** R$ {linha['VALOR DA NOTA']:,.2f}")
-                st.write(f"📤 **ORIGEM:** {linha['CIDADE ORIGEM']} | 📥 **DESTINO:** {linha['CIDADE DESTINO']}")
+                
+                uf_origem = str(linha['ESTADO ORIGEM']).split('-')[0].strip() if pd.notna(linha['ESTADO ORIGEM']) else ""
+                uf_destino = str(linha['ESTADO DESTINO']).split('-')[0].strip() if pd.notna(linha['ESTADO DESTINO']) else ""
+                st.write(f"📤 **ORIGEM:** {linha['CIDADE ORIGEM']} - {uf_origem} | 📥 **DESTINO:** {linha['CIDADE DESTINO']} - {uf_destino}")
                 
                 _, _, dist_km = obter_rota_rodoviaria(linha['lon_o'], linha['lat_o'], linha['lon_d'], linha['lat_d'])
                 if dist_km is not None:
@@ -479,8 +477,9 @@ with tab2:
                 df_pie_sla.columns = ['PERFORMANCE', 'CONTAGEM']
                 cores_sla = {'NO PRAZO': '#00C49F', 'ATRASADO': '#FF4B4B', 'EM ANDAMENTO': '#FFA500', 'SEM PREVISÃO': '#808080'}
                 fig_sla = px.pie(df_pie_sla, values='CONTAGEM', names='PERFORMANCE', color='PERFORMANCE', color_discrete_map=cores_sla, hole=0.3)
-                # --- CORREÇÃO: PORCENTAGEM NO GRÁFICO DE PIZZA DA PÁGINA 2 ---
-                fig_sla.update_traces(textinfo='percent+label')
+                
+                # ADIÇÃO: Porcentagem corrigida com textinfo no pie chart
+                fig_sla.update_traces(textinfo='percent+label', textfont_size=12)
                 fig_sla.update_layout(margin=dict(t=10, b=10, l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
                 st.plotly_chart(fig_sla, use_container_width=True)
 
@@ -506,7 +505,6 @@ with tab3:
         if f3_dt_fim: df_t3 = df_t3[df_t3['DATA COLETA'].dt.date <= f3_dt_fim]
         if f3_filial != "TODAS": df_t3 = df_t3[df_t3['FILIAL'].astype(str) == f3_filial]
         
-        # --- CARDS MINIMALISTAS DA PÁGINA 3 (EXCELENTE, BOA, ALERTA, CRITICA) ---
         def calc_otd_global_cards(grupo):
             validos = grupo[grupo['PERFORMANCE_SLA'].isin(['NO PRAZO', 'ATRASADO'])]
             if len(validos) == 0: return -1.0 
@@ -529,7 +527,6 @@ with tab3:
         c3c.markdown(f"<div class='card-mini b-amarelo'><h4>🟡 ALERTA</h4><h2 class='t-amarelo'>{n_ale}</h2></div>", unsafe_allow_html=True)
         c3d.markdown(f"<div class='card-mini b-vermelho'><h4>🔴 CRÍTICA</h4><h2 class='t-vermelho'>{n_cri}</h2></div>", unsafe_allow_html=True)
         st.write("")
-        # ---------------------------------------------------------------------
 
         cr1, cr2 = st.columns(2)
         with cr1:
