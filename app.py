@@ -361,7 +361,6 @@ with tab2:
         sem_filtro = (f2_ped == "TODOS" and f2_tra == "TODAS" and f2_sla == "TODOS" and f2_filial == "TODAS" and not f2_dt_inicio and not f2_dt_fim)
 
         with col_mapa:
-            # BOTÃO DE MODO CLARO/ESCURO PARA O MAPA
             mapa_escuro = st.toggle("🌙 Modo Escuro do Mapa", value=True)
             estilo_mapbox = "carto-darkmatter" if mapa_escuro else "carto-positron"
             
@@ -372,9 +371,10 @@ with tab2:
                 
                 if sem_filtro:
                     st.markdown("**📍 Mapa de Calor (Volume Geral de Entregas)**")
+                    # ADIÇÃO: Colorscale 'Blues' para um visual executivo em vez de 'Inferno'
                     fig_mapa.add_trace(go.Densitymapbox(
                         lat=df_mapa['lat_d'], lon=df_mapa['lon_d'], z=[1] * len(df_mapa),
-                        radius=25, colorscale='Inferno', showscale=False
+                        radius=25, colorscale='Blues', showscale=False
                     ))
                 else:
                     st.markdown("**🛣️ Rotas de Entrega Reais (Cores do SLA)**")
@@ -480,7 +480,6 @@ with tab2:
                 cores_sla = {'NO PRAZO': '#00C49F', 'ATRASADO': '#FF4B4B', 'EM ANDAMENTO': '#FFA500', 'SEM PREVISÃO': '#808080'}
                 fig_sla = px.pie(df_pie_sla, values='CONTAGEM', names='PERFORMANCE', color='PERFORMANCE', color_discrete_map=cores_sla, hole=0.3)
                 
-                # ADIÇÃO: Exibir APENAS texto e valor, tirando a porcentagem da frente
                 fig_sla.update_traces(textinfo='label+value', textfont_size=12)
                 fig_sla.update_layout(margin=dict(t=10, b=10, l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
                 st.plotly_chart(fig_sla, use_container_width=True)
