@@ -333,7 +333,6 @@ with tab2:
         if f2_dt_fim: df_t2_base = df_t2_base[df_t2_base['DATA COLETA'].dt.date <= f2_dt_fim]
         if f2_sla != "TODOS": df_t2_base = df_t2_base[df_t2_base['PERFORMANCE_SLA'] == f2_sla]
 
-        # REMOVIDO: Filtro de Centro de Custo da Página 2
         c1, c2, c3 = st.columns(3)
         f2_ped = c1.selectbox("📌 Nº de Pedido", ["TODOS"] + sorted(df_t2_base['Nº DE PEDIDO'].unique()), key="p2_ped")
         if f2_ped != "TODOS": df_t2_base = df_t2_base[df_t2_base['Nº DE PEDIDO'] == f2_ped]
@@ -441,7 +440,6 @@ with tab2:
                 st.markdown('<div class="bloco-info">', unsafe_allow_html=True)
                 st.markdown(f"##### Detalhes da Rota (Pedido: {f2_ped})")
                 
-                # ADIÇÃO: Exibição do Centro de Custo e dos Estados
                 st.write(f"🏢 **FILIAL:** {linha['FILIAL']} | 📊 **CENTRO DE CUSTO:** {linha['CENTRO DE CUSTO']}")
                 st.write(f"💰 **FRETE:** R$ {linha['VLR DO FRETE']:,.2f} | 📄 **NOTA:** R$ {linha['VALOR DA NOTA']:,.2f}")
                 
@@ -478,8 +476,8 @@ with tab2:
                 cores_sla = {'NO PRAZO': '#00C49F', 'ATRASADO': '#FF4B4B', 'EM ANDAMENTO': '#FFA500', 'SEM PREVISÃO': '#808080'}
                 fig_sla = px.pie(df_pie_sla, values='CONTAGEM', names='PERFORMANCE', color='PERFORMANCE', color_discrete_map=cores_sla, hole=0.3)
                 
-                # ADIÇÃO: Porcentagem corrigida com textinfo no pie chart
-                fig_sla.update_traces(textinfo='percent+label', textfont_size=12)
+                # ADIÇÃO: Exibir APENAS texto e valor, tirando a porcentagem da frente
+                fig_sla.update_traces(textinfo='label+value', textfont_size=12)
                 fig_sla.update_layout(margin=dict(t=10, b=10, l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
                 st.plotly_chart(fig_sla, use_container_width=True)
 
