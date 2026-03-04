@@ -55,18 +55,29 @@ def limpar_dados(df_entrada):
     df = df_entrada.copy()
     df.columns = df.columns.astype(str).str.strip().str.upper()
     
+    # Mapeamento Inteligente Seguro (Não sobrescreve colunas)
+    mapeamento = {}
     for col in df.columns:
-        if 'PEDIDO' in col or 'CHAMADO' in col or 'PROCESSO' in col: df.rename(columns={col: 'Nº DE PEDIDO'}, inplace=True)
-        elif 'VLR DO FRETE' in col or 'VALOR FRETE' in col or 'VALOR DO FRETE' in col: df.rename(columns={col: 'VLR DO FRETE'}, inplace=True)
-        elif 'PREVISÃO' in col or 'PREVISAO' in col: df.rename(columns={col: 'DATA DE PREVISÃO DE ENTREGA'}, inplace=True)
-        elif 'ENTREGA' in col and 'PREVIS' not in col: df.rename(columns={col: 'DATA ENTREGUE'}, inplace=True)
-        elif 'MEDICAO' in col or 'MEDIÇÃO' in col: df.rename(columns={col: 'MEDIÇÃO/SUPRIMENTOS'}, inplace=True)
-        elif 'STATUS' in col: df.rename(columns={col: 'STATUS FRETES'}, inplace=True)
-        elif 'OBSERVA' in col: df.rename(columns={col: 'OBSERVAÇÃO'}, inplace=True)
-        elif 'VEICULO' in col or 'VEÍCULO' in col: df.rename(columns={col: 'VEÍCULO'}, inplace=True)
+        if col in ['Nº DE PEDIDO', 'NUMERO DO PEDIDO', 'PEDIDO']: mapeamento[col] = 'Nº DE PEDIDO'
+        elif 'VLR DO FRETE' in col or 'VALOR FRETE' in col or 'VALOR DO FRETE' in col: mapeamento[col] = 'VLR DO FRETE'
+        elif 'PREVISÃO' in col or 'PREVISAO' in col: mapeamento[col] = 'DATA DE PREVISÃO DE ENTREGA'
+        elif 'ENTREGA' in col and 'PREVIS' not in col: mapeamento[col] = 'DATA ENTREGUE'
+        elif 'MEDICAO' in col or 'MEDIÇÃO' in col: mapeamento[col] = 'MEDIÇÃO/SUPRIMENTOS'
+        elif 'STATUS' in col: mapeamento[col] = 'STATUS FRETES'
+        elif 'OBSERVA' in col: mapeamento[col] = 'OBSERVAÇÃO'
+        elif 'VEICULO' in col or 'VEÍCULO' in col: mapeamento[col] = 'VEÍCULO'
+
+    df.rename(columns=mapeamento, inplace=True)
+    
+    # Se ainda não tiver 'Nº DE PEDIDO', aí sim ele tenta usar o Chamado/Processo
+    if 'Nº DE PEDIDO' not in df.columns:
+        for col in df.columns:
+            if 'CHAMADO' in col or 'PROCESSO' in col:
+                df.rename(columns={col: 'Nº DE PEDIDO'}, inplace=True)
+                break
 
     if 'Nº DE PEDIDO' not in df.columns:
-        return df, False, "Colunas lidas: " + ", ".join(df.columns)
+        return df, False, "Erro: Coluna de Pedido não encontrada. Nomes lidos: " + ", ".join(df.columns)
 
     if 'ID_INTERNO' not in df.columns: 
         df['ID_INTERNO'] = [str(uuid.uuid4()) for _ in range(len(df))]
@@ -154,14 +165,12 @@ with st.expander("📥 Importar Dados (Atualizar Base)", expanded=st.session_sta
                         else: st.error("Aba incorreta lida no CSV: " + msg)
                     
                     else:
-                        # ===== NOVO: VARREDURA INTELIGENTE DE ABAS NO EXCEL =====
                         motor = 'pyxlsb' if arq_upload.name.lower().endswith('.xlsb') else 'openpyxl'
                         xls = pd.ExcelFile(arq_upload, engine=motor)
                         
                         sucesso_global = False
                         msg_erro = ""
                         
-                        # Testa cada aba do Excel, uma por uma
                         for aba in xls.sheet_names:
                             df_temp = pd.read_excel(xls, sheet_name=aba)
                             df_limpo, sucesso, msg = limpar_dados(df_temp)
@@ -169,9 +178,9 @@ with st.expander("📥 Importar Dados (Atualizar Base)", expanded=st.session_sta
                             if sucesso:
                                 st.session_state.banco_dados = df_limpo
                                 sucesso_global = True
-                                break # Achou a aba certa, para de procurar!
+                                break 
                             else:
-                                msg_erro = msg # Guarda o erro para mostrar caso nenhuma aba funcione
+                                msg_erro = msg
                         
                         if sucesso_global:
                             st.rerun()
