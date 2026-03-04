@@ -51,12 +51,12 @@ COORDENADAS_ESTADOS = {
     'SP': (-23.5505, -46.6333), 'SE': (-10.5741, -37.3857), 'TO': (-10.1843, -48.3336)
 }
 
-def limpar_dados(df):
-    # Padronização simples e direta
+def limpar_dados(df_entrada):
+    df = df_entrada.copy()
     df.columns = df.columns.astype(str).str.strip().str.upper()
     
     for col in df.columns:
-        if 'PEDIDO' in col: df.rename(columns={col: 'Nº DE PEDIDO'}, inplace=True)
+        if 'PEDIDO' in col or 'CHAMADO' in col or 'PROCESSO' in col: df.rename(columns={col: 'Nº DE PEDIDO'}, inplace=True)
         elif 'VLR DO FRETE' in col or 'VALOR FRETE' in col or 'VALOR DO FRETE' in col: df.rename(columns={col: 'VLR DO FRETE'}, inplace=True)
         elif 'PREVISÃO' in col or 'PREVISAO' in col: df.rename(columns={col: 'DATA DE PREVISÃO DE ENTREGA'}, inplace=True)
         elif 'ENTREGA' in col and 'PREVIS' not in col: df.rename(columns={col: 'DATA ENTREGUE'}, inplace=True)
@@ -66,7 +66,7 @@ def limpar_dados(df):
         elif 'VEICULO' in col or 'VEÍCULO' in col: df.rename(columns={col: 'VEÍCULO'}, inplace=True)
 
     if 'Nº DE PEDIDO' not in df.columns:
-        return df, False, "Erro: Coluna de Pedido não encontrada. Nomes lidos: " + ", ".join(df.columns)
+        return df, False, "Colunas lidas: " + ", ".join(df.columns)
 
     if 'ID_INTERNO' not in df.columns: 
         df['ID_INTERNO'] = [str(uuid.uuid4()) for _ in range(len(df))]
@@ -146,15 +146,38 @@ with st.expander("📥 Importar Dados (Atualizar Base)", expanded=st.session_sta
                         except UnicodeDecodeError:
                             arq_upload.seek(0)
                             df_temp = pd.read_csv(arq_upload, encoding='latin1')
-                    else:
-                        motor = 'pyxlsb' if arq_upload.name.lower().endswith('.xlsb') else 'openpyxl'
-                        df_temp = pd.read_excel(arq_upload, engine=motor)
                         
-                    df_limpo, sucesso, msg = limpar_dados(df_temp)
-                    if sucesso:
-                        st.session_state.banco_dados = df_limpo
-                        st.rerun()
-                    else: st.error(msg)
+                        df_limpo, sucesso, msg = limpar_dados(df_temp)
+                        if sucesso:
+                            st.session_state.banco_dados = df_limpo
+                            st.rerun()
+                        else: st.error("Aba incorreta lida no CSV: " + msg)
+                    
+                    else:
+                        # ===== NOVO: VARREDURA INTELIGENTE DE ABAS NO EXCEL =====
+                        motor = 'pyxlsb' if arq_upload.name.lower().endswith('.xlsb') else 'openpyxl'
+                        xls = pd.ExcelFile(arq_upload, engine=motor)
+                        
+                        sucesso_global = False
+                        msg_erro = ""
+                        
+                        # Testa cada aba do Excel, uma por uma
+                        for aba in xls.sheet_names:
+                            df_temp = pd.read_excel(xls, sheet_name=aba)
+                            df_limpo, sucesso, msg = limpar_dados(df_temp)
+                            
+                            if sucesso:
+                                st.session_state.banco_dados = df_limpo
+                                sucesso_global = True
+                                break # Achou a aba certa, para de procurar!
+                            else:
+                                msg_erro = msg # Guarda o erro para mostrar caso nenhuma aba funcione
+                        
+                        if sucesso_global:
+                            st.rerun()
+                        else:
+                            st.error(f"Erro: Nenhuma aba válida com a coluna de Pedidos foi encontrada na planilha. Última aba lida: {msg_erro}")
+
                 except Exception as e: st.error(f"Erro no arquivo: {e}")
 
 st.divider()
@@ -199,14 +222,12 @@ if not df_raw.empty:
             g1, g2 = st.columns(2)
             with g1:
                 df_f = df1.groupby('FILIAL')['VLR DO FRETE'].sum().reset_index().sort_values('VLR DO FRETE', ascending=False)
-                # BARRAS VERTICAIS com o número exato "em cima"
                 fig1 = px.bar(df_f, x='FILIAL', y='VLR DO FRETE', text='VLR DO FRETE', title="Faturamento por Filial", color_discrete_sequence=['#1C83E1'])
                 fig1.update_traces(texttemplate='R$ %{text:,.2f}', textposition='outside')
                 fig1.update_layout(margin=dict(t=40), yaxis=dict(visible=False))
                 st.plotly_chart(fig1, use_container_width=True)
             with g2:
                 df_v = df1.groupby('VEÍCULO')['Nº DE PEDIDO'].nunique().reset_index().sort_values('Nº DE PEDIDO', ascending=False)
-                # BARRAS VERTICAIS com o número exato "em cima"
                 fig2 = px.bar(df_v, x='VEÍCULO', y='Nº DE PEDIDO', text='Nº DE PEDIDO', title="Veículos Utilizados", color_discrete_sequence=['#00C49F'])
                 fig2.update_traces(texttemplate='%{text}', textposition='outside')
                 fig2.update_layout(margin=dict(t=40), yaxis=dict(visible=False))
@@ -223,8 +244,6 @@ if not df_raw.empty:
     # ==========================================
     with tab2:
         df2_b = df_raw.copy()
-        
-        # Filtros no topo da aba
         colf1, colf2, colf3 = st.columns(3)
         f2_sla = colf1.selectbox("🚥 Status SLA", ["TODOS", "NO PRAZO", "ATRASADO", "EM ANDAMENTO"], key="f2s")
         if f2_sla != "TODOS": df2_b = df2_b[df2_b['PERFORMANCE_SLA'] == f2_sla]
@@ -235,7 +254,6 @@ if not df_raw.empty:
         f2_ped = colf3.selectbox("📌 Pedido", ["TODOS"] + sorted(df2_b['Nº DE PEDIDO'].astype(str).unique()), key="f2p")
         if f2_ped != "TODOS": df2_b = df2_b[df2_b['Nº DE PEDIDO'].astype(str) == f2_ped]
 
-        # 3 CARDS DINÂMICOS
         st.write("")
         c_prazo, c_atraso, c_andamento = st.columns(3)
         
@@ -280,14 +298,11 @@ if not df_raw.empty:
     # ==========================================
     with tab3:
         df3 = df_raw.copy()
-        
-        # Filtros
         cf1, cf2 = st.columns(2)
         f3_fil = cf1.selectbox("Filial", ["TODAS"] + sorted(df3['FILIAL'].astype(str).unique()), key="f3fil")
         f3_sla_regua = cf2.selectbox("Régua SLA", ["TODOS", "EXCELENTE", "BOA", "ALERTA", "CRÍTICA"], key="f3r")
         if f3_fil != "TODAS": df3 = df3[df3['FILIAL'].astype(str) == f3_fil]
 
-        # 3 CARDS DINÂMICOS
         n3_p = len(df3[df3['PERFORMANCE_SLA'] == 'NO PRAZO'])
         n3_at = len(df3[df3['PERFORMANCE_SLA'] == 'ATRASADO'])
         n3_an = len(df3[df3['PERFORMANCE_SLA'] == 'EM ANDAMENTO'])
@@ -300,7 +315,6 @@ if not df_raw.empty:
         cr1, cr2 = st.columns(2)
         with cr1:
             df_v3 = df3.groupby('TRANSPORTADORA')['Nº DE PEDIDO'].nunique().reset_index().sort_values('Nº DE PEDIDO', ascending=False)
-            # Barras Verticais
             fig_v3 = px.bar(df_v3, x='TRANSPORTADORA', y='Nº DE PEDIDO', text='Nº DE PEDIDO', title="Ranking Volume", color_discrete_sequence=['#1C83E1'])
             fig_v3.update_traces(textposition='outside')
             fig_v3.update_layout(margin=dict(t=40), yaxis=dict(visible=False))
@@ -317,7 +331,6 @@ if not df_raw.empty:
             if f3_sla_regua != "TODOS": r_sla = r_sla[r_sla['CLASS'] == f3_sla_regua]
             r_sla = r_sla.sort_values('OTD', ascending=False)
             
-            # Barras Verticais
             fig_s3 = px.bar(r_sla, x='TRANSPORTADORA', y='OTD', text='OTD', title="Ranking SLA (OTD %)", 
                             color='CLASS', color_discrete_map={'EXCELENTE':'#00C49F','BOA':'#1C83E1','ALERTA':'#FFA500','CRÍTICA':'#FF4B4B'})
             fig_s3.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
