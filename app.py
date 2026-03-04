@@ -14,7 +14,6 @@ st.set_page_config(page_title="FRETES ANALYTICS V1.0", page_icon="🚚", layout=
 
 st.markdown("""
     <style>
-    /* Estilização dos Cards Customizados */
     .status-card {
         padding: 20px;
         border-radius: 10px;
@@ -40,8 +39,6 @@ st.markdown("""
 # ==========================================
 # 2. MOTOR DO BANCO DE DADOS E FUNÇÕES
 # ==========================================
-ARQUIVO_DB = "banco_fretes_final.csv"
-
 COORDENADAS_ESTADOS = {
     'AC': (-9.0238, -70.8120), 'AL': (-9.5328, -36.6698), 'AP': (1.4192, -51.7792),
     'AM': (-3.4168, -65.8561), 'BA': (-12.5797, -41.7007), 'CE': (-5.4984, -39.3206),
@@ -65,18 +62,28 @@ nomes_estados = {
 }
 
 def limpar_dados(df):
+    # Padroniza tudo para letras maiúsculas e tira espaços sobrando nas pontas
     df.columns = df.columns.astype(str).str.strip().str.upper().str.replace('  ', ' ')
-    mapeamento = {
-        'NUMERO DO PEDIDO': 'Nº DE PEDIDO', 'PEDIDO': 'Nº DE PEDIDO',
-        'VALOR FRETE': 'VLR DO FRETE', 'VALOR DO FRETE': 'VLR DO FRETE',
-        'STATUS': 'STATUS FRETES', 'MEDICAO/SUPRIMENTOS': 'MEDIÇÃO/SUPRIMENTOS',
-        'DATA PREVISÃO ENTREGA': 'DATA DE PREVISÃO DE ENTREGA',
-        'DATA DE PREVISAO DE ENTREGA': 'DATA DE PREVISÃO DE ENTREGA',
-        'DATA ENTREGA': 'DATA ENTREGUE', 'OBSERVACAO': 'OBSERVAÇÃO'
-    }
-    df.rename(columns=mapeamento, inplace=True)
-    if 'Nº DE PEDIDO' not in df.columns: return df, False, "A coluna 'Nº DE PEDIDO' não foi encontrada."
-    if 'ID_INTERNO' not in df.columns: df['ID_INTERNO'] = [str(uuid.uuid4()) for _ in range(len(df))]
+    
+    # BUSCA INTELIGENTE DE COLUNAS (Evita o erro do Nº vs N°)
+    novo_mapeamento = {}
+    for col in df.columns:
+        if 'PEDIDO' in col: novo_mapeamento[col] = 'Nº DE PEDIDO'
+        elif 'VALOR FRETE' in col or 'VALOR DO FRETE' in col or 'VLR FRETE' in col: novo_mapeamento[col] = 'VLR DO FRETE'
+        elif 'STATUS' in col and 'FRETE' not in col: novo_mapeamento[col] = 'STATUS FRETES'
+        elif 'MEDICAO' in col or 'MEDIÇAO' in col: novo_mapeamento[col] = 'MEDIÇÃO/SUPRIMENTOS'
+        elif 'PREVISÃO' in col or 'PREVISAO' in col: novo_mapeamento[col] = 'DATA DE PREVISÃO DE ENTREGA'
+        elif col == 'DATA ENTREGA': novo_mapeamento[col] = 'DATA ENTREGUE'
+        elif 'OBSERVA' in col: novo_mapeamento[col] = 'OBSERVAÇÃO'
+    
+    # Aplica o mapeamento inteligente
+    df.rename(columns=novo_mapeamento, inplace=True)
+    
+    if 'Nº DE PEDIDO' not in df.columns: 
+        return df, False, "Erro crítico: A coluna de Pedidos não foi encontrada. Verifique se existe alguma coluna com a palavra 'PEDIDO'."
+        
+    if 'ID_INTERNO' not in df.columns: 
+        df['ID_INTERNO'] = [str(uuid.uuid4()) for _ in range(len(df))]
     
     colunas_finais = [
         'ID_INTERNO', 'TRANSPORTADORA', 'CHAMADO DE FRETE / Nº PROCESSO', 'NUMERO DA NOTA', 
@@ -154,7 +161,7 @@ with st.expander("📥 Importar Dados (Atualizar Base)", expanded=st.session_sta
                         st.session_state.banco_dados = df_limpo
                         st.rerun()
                     else: st.error(msg)
-                except Exception as e: st.error(f"Erro: {e}")
+                except Exception as e: st.error(f"Erro no arquivo: {e}")
 
 st.divider()
 df_raw = st.session_state.banco_dados
@@ -177,18 +184,18 @@ if not df_raw.empty:
             st.markdown("### 🔎 Filtros")
             f1_dt_ini = st.date_input("Início", value=None, key="f1i")
             f1_dt_fim = st.date_input("Fim", value=None, key="f1f")
-            f1_ped = st.selectbox("Pedido", ["TODOS"] + sorted(df_raw['Nº DE PEDIDO'].unique()))
-            f1_fil = st.selectbox("Filial", ["TODAS"] + sorted(df_raw['FILIAL'].unique()))
-            f1_tra = st.selectbox("Transportadora", ["TODAS"] + sorted(df_raw['TRANSPORTADORA'].unique()))
-            f1_vei = st.selectbox("Veículo", ["TODOS"] + sorted(df_raw['VEÍCULO'].unique()))
+            f1_ped = st.selectbox("Pedido", ["TODOS"] + sorted(df_raw['Nº DE PEDIDO'].astype(str).unique()))
+            f1_fil = st.selectbox("Filial", ["TODAS"] + sorted(df_raw['FILIAL'].astype(str).unique()))
+            f1_tra = st.selectbox("Transportadora", ["TODAS"] + sorted(df_raw['TRANSPORTADORA'].astype(str).unique()))
+            f1_vei = st.selectbox("Veículo", ["TODOS"] + sorted(df_raw['VEÍCULO'].astype(str).unique()))
 
         df1 = df_raw.copy()
         if f1_dt_ini: df1 = df1[df1['DATA COLETA'].dt.date >= f1_dt_ini]
         if f1_dt_fim: df1 = df1[df1['DATA COLETA'].dt.date <= f1_dt_fim]
-        if f1_ped != "TODOS": df1 = df1[df1['Nº DE PEDIDO'] == f1_ped]
-        if f1_fil != "TODAS": df1 = df1[df1['FILIAL'] == f1_fil]
-        if f1_tra != "TODAS": df1 = df1[df1['TRANSPORTADORA'] == f1_tra]
-        if f1_vei != "TODOS": df1 = df1[df1['VEÍCULO'] == f1_vei]
+        if f1_ped != "TODOS": df1 = df1[df1['Nº DE PEDIDO'].astype(str) == f1_ped]
+        if f1_fil != "TODAS": df1 = df1[df1['FILIAL'].astype(str) == f1_fil]
+        if f1_tra != "TODAS": df1 = df1[df1['TRANSPORTADORA'].astype(str) == f1_tra]
+        if f1_vei != "TODOS": df1 = df1[df1['VEÍCULO'].astype(str) == f1_vei]
 
         with c2:
             m1, m2 = st.columns(2)
@@ -217,19 +224,17 @@ if not df_raw.empty:
     # PÁGINA 2
     # ==========================================
     with tab2:
-        # Filtros Dinâmicos Página 2
         df2_b = df_raw.copy()
         colf1, colf2, colf3 = st.columns(3)
         f2_sla = colf1.selectbox("🚥 Status SLA", ["TODOS", "NO PRAZO", "ATRASADO", "EM ANDAMENTO"], key="f2s")
         if f2_sla != "TODOS": df2_b = df2_b[df2_b['PERFORMANCE_SLA'] == f2_sla]
         
-        f2_tra = colf2.selectbox("🏢 Transportadora", ["TODAS"] + sorted(df2_b['TRANSPORTADORA'].unique()), key="f2t")
-        if f2_tra != "TODAS": df2_b = df2_b[df2_b['TRANSPORTADORA'] == f2_tra]
+        f2_tra = colf2.selectbox("🏢 Transportadora", ["TODAS"] + sorted(df2_b['TRANSPORTADORA'].astype(str).unique()), key="f2t")
+        if f2_tra != "TODAS": df2_b = df2_b[df2_b['TRANSPORTADORA'].astype(str) == f2_tra]
         
-        f2_ped = colf3.selectbox("📌 Pedido", ["TODOS"] + sorted(df2_b['Nº DE PEDIDO'].unique()), key="f2p")
-        if f2_ped != "TODOS": df2_b = df2_b[df2_b['Nº DE PEDIDO'] == f2_ped]
+        f2_ped = colf3.selectbox("📌 Pedido", ["TODOS"] + sorted(df2_b['Nº DE PEDIDO'].astype(str).unique()), key="f2p")
+        if f2_ped != "TODOS": df2_b = df2_b[df2_b['Nº DE PEDIDO'].astype(str) == f2_ped]
 
-        # CARDS DE STATUS (DINÂMICOS)
         st.write("")
         c_prazo, c_atraso, c_andamento = st.columns(3)
         
@@ -273,7 +278,6 @@ if not df_raw.empty:
     # PÁGINA 3
     # ==========================================
     with tab3:
-        # Cartões no topo da Página 3
         df3 = df_raw.copy()
         cf1, cf2, cf3 = st.columns(3)
         f3_fil = cf1.selectbox("Filial", ["TODAS"] + sorted(df3['FILIAL'].astype(str).unique()), key="f3fil")
